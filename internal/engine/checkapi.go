@@ -22,6 +22,7 @@ type checkAPI struct {
 	shellUID  int
 	hintSink  HintSink
 	varSink   VarSink
+	eng       *Engine
 }
 
 // HintSink receives hints posted by the hint_exit built-in from inside
@@ -33,7 +34,7 @@ type HintSink func(unit, task, message string) error
 type VarSink func(unit, name, value string) error
 
 // ServeCheckAPI starts the unix-socket listener at sockPath.
-func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, hints HintSink, vars VarSink) error {
+func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, eng *Engine) error {
 	uid, err := lookupUID(shellUser)
 	if err != nil {
 		return fmt.Errorf("shell user %q: %w", shellUser, err)
@@ -46,7 +47,14 @@ func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, hints HintS
 	if err := os.Chmod(sockPath, 0o600); err != nil {
 		return err
 	}
-	api := &checkAPI{watcher: watcher, shellUser: shellUser, shellUID: uid, hintSink: hints, varSink: vars}
+	api := &checkAPI{
+		watcher:   watcher,
+		shellUser: shellUser,
+		shellUID:  uid,
+		hintSink:  eng.PublishHint,
+		varSink:   eng.SetVar,
+		eng:       eng,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/shells", api.handleShells)
 	mux.HandleFunc("/hint", api.handleHint)
@@ -54,6 +62,7 @@ func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, hints HintS
 	mux.HandleFunc("/exec/seq", api.handleSeq)
 	mux.HandleFunc("/exec/wait", api.handleExecWait)
 	mux.HandleFunc("/exec/snapshot", api.handleSnapshot)
+	mux.HandleFunc("/units/watch", api.handleUnitsWatch)
 	go func() { _ = http.Serve(ln, mux) }()
 	return nil
 }
@@ -224,6 +233,85 @@ func envOf(ev ExecEvent, name string) (string, bool) {
 
 func (a *checkAPI) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, a.watcher.Snapshot(0, 200))
+}
+
+// unitsSnapshot is the "snapshot" SSE event payload.
+type unitsSnapshot struct {
+	Path  string            `json:"path"`
+	Units map[string]string `json:"units"`
+}
+
+// unitStatus is the "unit" SSE event payload.
+type unitStatus struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+// handleUnitsWatch streams unit status changes as Server-Sent Events, for
+// supervisors (the iximiuz Labs examiner) that need to learn when
+// learning-path units complete without polling.
+//
+// On connect it sends a `snapshot` event with every unit's current status,
+// then one `unit` event per subsequent change. A client that reconnects
+// resyncs from the fresh snapshot, so no event is ever permanently missed
+// even across a dropped connection.
+func (a *checkAPI) handleUnitsWatch(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", 500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// Subscribe before taking the snapshot so no unit change in between is
+	// lost.
+	events, unsubscribe := a.eng.Bus.Subscribe()
+	defer unsubscribe()
+
+	snapshot, err := json.Marshal(unitsSnapshot{Path: a.eng.Path.ID, Units: a.eng.UnitStatuses()})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if _, err := fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", snapshot); err != nil {
+		return
+	}
+	flusher.Flush()
+
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev.Type != "unit" {
+				continue
+			}
+			ue, ok := ev.Data.(UnitEvent)
+			if !ok {
+				continue
+			}
+			data, err := json.Marshal(unitStatus{ID: ue.Unit, Status: ue.Status})
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "event: unit\ndata: %s\n\n", data); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-keepalive.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

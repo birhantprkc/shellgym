@@ -71,7 +71,8 @@ my-path/
 ```
 
 Ids are prefix-less folder names: `first-module/some-unit`. The numeric
-prefixes only encode order and never appear in ids or URLs.
+prefixes only encode order and never appear in ids or URLs. The name part
+after the prefix must be lowercase letters, digits, and dashes.
 
 `path.yaml`:
 

@@ -146,12 +146,12 @@ func (p *Path) Module(id string) *Module {
 	return nil
 }
 
-var prefixRe = regexp.MustCompile(`^(\d+)\.(.+)$`)
+var prefixRe = regexp.MustCompile(`^(\d+)\.([a-z0-9][a-z0-9-]*)$`)
 
 func splitPrefix(folder string) (order int, name string, err error) {
 	m := prefixRe.FindStringSubmatch(folder)
 	if m == nil {
-		return 0, "", fmt.Errorf("folder %q: want NNN.name format", folder)
+		return 0, "", fmt.Errorf("folder %q: want NNN.name format (name: lowercase letters, digits, and dashes)", folder)
 	}
 	fmt.Sscanf(m[1], "%d", &order)
 	return order, m[2], nil

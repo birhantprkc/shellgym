@@ -164,10 +164,19 @@ Checks that need daemon-side state talk to it over a unix socket
 | `/exec/seq`, `/exec/snapshot` | debugging | event-stream introspection |
 | `/hint` | `hint_exit` | push a hint to the UI |
 | `/vars` | `set_var` | publish a task var on the current unit |
+| `/units/watch` | external observers | SSE stream of unit statuses: a full snapshot on connect, then one event per change |
 
 The socket path and the activation horizon reach the shims through the
 `GYM_SOCK` and `GYM_SINCE_SEQ` environment variables the engine sets for
 every script.
+
+`/units/watch` is a Server-Sent Events stream, not a check. It opens with a
+`snapshot` event (`{"path": "...", "units": {"<unit id>": "pending|active|
+completed|unsupported", ...}}`), then emits a `unit` event
+(`{"id": "...", "status": "..."}`) whenever a unit's status changes, plus a
+`: keepalive` comment every 15 seconds so a client can tell a quiet daemon
+from a dead one. A client resyncs from the snapshot on every (re)connect, so a
+dropped connection never loses an event.
 
 `hint_exit` gets one extra piece of machinery: the engine prepends a
 shell function to every script that calls the real binary and then

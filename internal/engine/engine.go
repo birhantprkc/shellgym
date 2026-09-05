@@ -367,6 +367,30 @@ func (e *Engine) MarkModuleSeen(id string) error {
 	})
 }
 
+// UnitStatuses reports every unit's status keyed by unit id: "pending",
+// "active", "completed", or "unsupported" (the unit cannot be trained on this
+// host, see content.Unit.Unsupported). Module intro scenes are not units and
+// are not included.
+func (e *Engine) UnitStatuses() map[string]string {
+	out := map[string]string{}
+	e.Store.View(func(d *state.Data) {
+		for _, m := range e.Path.Modules {
+			for _, u := range m.Units {
+				if u.Unsupported {
+					out[u.ID] = "unsupported"
+					continue
+				}
+				status := string(state.UnitPending)
+				if us, ok := d.Units[u.ID]; ok {
+					status = string(us.Status)
+				}
+				out[u.ID] = status
+			}
+		}
+	})
+	return out
+}
+
 func (e *Engine) Shutdown() {
 	e.mu.Lock()
 	e.stopActiveLocked()

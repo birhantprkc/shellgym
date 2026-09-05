@@ -113,7 +113,7 @@ func newTestEnv(t *testing.T, units map[string]string) *testEnv {
 		HintInterval: 1 * time.Second,
 	})
 	t.Cleanup(eng.Shutdown)
-	if err := ServeCheckAPI(sockPath, path.ShellUser, watcher, eng.PublishHint, eng.SetVar); err != nil {
+	if err := ServeCheckAPI(sockPath, path.ShellUser, watcher, eng); err != nil {
 		t.Fatal(err)
 	}
 	return &testEnv{t: t, eng: eng, events: ch, dir: dir}
