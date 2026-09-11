@@ -229,6 +229,8 @@ type apiScene struct {
 	ID          string `json:"id"`
 	Status      string `json:"status"`
 	Unsupported bool   `json:"unsupported"`
+	Variant     string `json:"variant"`
+	Hidden      bool   `json:"hidden"`
 }
 
 type apiPath struct {
@@ -242,8 +244,9 @@ type apiTask struct {
 }
 
 type apiUnit struct {
-	Vars  map[string]string `json:"vars"`
-	Tasks []apiTask         `json:"tasks"`
+	Status string            `json:"status"`
+	Vars   map[string]string `json:"vars"`
+	Tasks  []apiTask         `json:"tasks"`
 }
 
 // --- the walk ---------------------------------------------------------------
@@ -267,8 +270,10 @@ func runSolve(api, pathDir, unitFilter string, timeout time.Duration) error {
 	}
 
 	c := &apiClient{base: strings.TrimRight(api, "/")}
+	// Ask for hidden units too: every variant of the path gets solved in
+	// one walk, not just the one this attempt drew.
 	var pathState apiPath
-	if err := c.get("/api/path", &pathState); err != nil {
+	if err := c.get("/api/path?hidden=1", &pathState); err != nil {
 		return err
 	}
 
@@ -281,22 +286,30 @@ func runSolve(api, pathDir, unitFilter string, timeout time.Duration) error {
 		if unitFilter != "" && scene.ID != unitFilter {
 			continue
 		}
+		label := scene.ID
+		if scene.Variant != "" {
+			label += " [" + scene.Variant
+			if scene.Hidden {
+				label += ", hidden"
+			}
+			label += "]"
+		}
 		if scene.Status == "completed" {
-			fmt.Printf("SKIP  %s (already completed)\n", scene.ID)
+			fmt.Printf("SKIP  %s (already completed)\n", label)
 			continue
 		}
 		if scene.Unsupported {
-			fmt.Printf("SKIP  %s (not supported by the daemon's environment)\n", scene.ID)
+			fmt.Printf("SKIP  %s (not supported by the daemon's environment)\n", label)
 			continue
 		}
 		// Note: the daemon rejects activation of units whose needs: deps
 		// are not solved, so a dependent of a failed (or filtered-out)
 		// unit fails here too - solving it alone is meaningless anyway.
 		if err := solveUnit(c, sh, path.Unit(scene.ID), timeout); err != nil {
-			fmt.Printf("FAIL  %s (%v)\n", scene.ID, err)
+			fmt.Printf("FAIL  %s (%v)\n", label, err)
 			failed++
 		} else {
-			fmt.Printf("PASS  %s\n", scene.ID)
+			fmt.Printf("PASS  %s\n", label)
 		}
 	}
 	if failed > 0 {
@@ -374,15 +387,12 @@ func solveUnit(c *apiClient, sh *studentShell, u *content.Unit, timeout time.Dur
 		return fmt.Errorf("no solve script")
 	}
 
-	// Wait for unit completion via the API.
+	// Wait for unit completion via the API. Ask the unit itself, not the
+	// path listing: a unit hidden by the variant draw is not listed there.
 	for time.Now().Before(deadline) {
-		var p apiPath
-		if err := c.get("/api/path", &p); err == nil {
-			for _, s := range p.Scenes {
-				if s.ID == u.ID && s.Status == "completed" {
-					return nil
-				}
-			}
+		var au apiUnit
+		if err := c.get("/api/unit/"+u.ID, &au); err == nil && au.Status == "completed" {
+			return nil
 		}
 		time.Sleep(1 * time.Second)
 	}

@@ -741,6 +741,21 @@ kbd {
   border-color: var(--pre-line); font-family: var(--mono); font-size: 12px;
 }
 .debug-head .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* Variant draw row (paths with `variant:` units): one group per key, the
+   drawn value marked, every other value a button that switches the draw. */
+.debug-variants {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px;
+  padding: 6px 14px; border-bottom: 1px solid var(--pre-line);
+}
+.debug-variants-label, .debug-variant-key { color: var(--faint); }
+.debug-variant-group { display: inline-flex; align-items: center; gap: 6px; }
+.debug-variant { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pre-line); }
+.debug-variant.current { border-color: var(--accent); color: var(--accent); }
+.debug-variant:not(.current) {
+  background: transparent; color: var(--pre-ink); cursor: pointer;
+  font-family: var(--mono); font-size: 12px;
+}
+.debug-variant:not(.current):hover { border-color: var(--accent); color: var(--accent); }
 .debug-body { overflow-y: auto; padding: 8px 14px 20px; }
 .debug-task { margin: 10px 0 4px; color: var(--accent); font-weight: 600; }
 .debug-run { border-left: 3px solid var(--pre-line); margin: 6px 0 6px 4px; padding: 4px 10px; }

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -146,6 +148,18 @@ func newValidateCmd() *cobra.Command {
 				}
 			}
 			cmd.Printf("OK: %d modules, %d units\n", len(path.Modules), units)
+			keys := path.VariantKeys()
+			names := make([]string, 0, len(keys))
+			for k := range keys {
+				names = append(names, k)
+			}
+			sort.Strings(names)
+			for _, k := range names {
+				cmd.Printf("variant %s: %s\n", k, strings.Join(keys[k], ", "))
+				if len(keys[k]) == 1 {
+					cmd.Printf("  warning: a single value is always drawn - units in variant %s=%s are always shown\n", k, keys[k][0])
+				}
+			}
 			return nil
 		},
 	}

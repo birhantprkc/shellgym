@@ -450,3 +450,166 @@ func TestDebugDisabledInLiveMode(t *testing.T) {
 		t.Errorf("status.live = %v", st["live"])
 	}
 }
+
+// variantServer serves a path with a two-value variant key next to an
+// unconditional unit.
+func variantServer(t *testing.T, live bool) (*Server, *content.Path) {
+	t.Helper()
+	dir := t.TempDir()
+	write := func(rel, data string) {
+		p := filepath.Join(dir, "content", rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unit := func(title, extra string) string {
+		return "---\ntitle: " + title + "\n" + extra + "tasks:\n  t1:\n    check: |\n      true\n---\nBody.\n\n::task\nWaiting...\n::\n"
+	}
+	write("path.yaml", "id: vartest\ntitle: Variant Test\n")
+	write("010.mod/010.always/unit.md", unit("Always", ""))
+	write("010.mod/020.forest/unit.md", unit("Forest", "variant: scene=forest\n"))
+	write("010.mod/030.meadow/unit.md", unit("Meadow", "variant: scene=meadow\n"))
+	p, err := content.Load(filepath.Join(dir, "content"), "ubuntu", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := state.Open(filepath.Join(dir, "state"), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := bus.New()
+	eng := engine.New(p, st, b, nil, engine.Options{ChecksDir: dir, SockPath: filepath.Join(dir, "x.sock")})
+	t.Cleanup(eng.Shutdown)
+	return New(":0", eng, b, Options{Live: live}), p
+}
+
+type variantPathJSON struct {
+	Total  int `json:"total"`
+	Scenes []struct {
+		ID      string `json:"id"`
+		Variant string `json:"variant"`
+		Hidden  bool   `json:"hidden"`
+	} `json:"scenes"`
+}
+
+func getPath(t *testing.T, url string) variantPathJSON {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out variantPathJSON
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestVariantsHideUnitsFromThePath(t *testing.T) {
+	s, p := variantServer(t, false)
+	ts := httptest.NewServer(s.mux)
+	defer ts.Close()
+
+	shown, hidden := "forest", "meadow"
+	if p.Unit("mod/forest").Hidden {
+		shown, hidden = "meadow", "forest"
+	}
+
+	// The student's path lists only the drawn units and counts only them.
+	out := getPath(t, ts.URL+"/api/path")
+	if out.Total != 2 || len(out.Scenes) != 2 || out.Scenes[0].ID != "mod/always" ||
+		out.Scenes[1].ID != "mod/"+shown || out.Scenes[1].Variant != "scene="+shown || out.Scenes[1].Hidden {
+		t.Fatalf("path: %+v", out)
+	}
+	// ?hidden=1 (authoring tools) lists the rest, flagged, still uncounted.
+	all := getPath(t, ts.URL+"/api/path?hidden=1")
+	if all.Total != 2 || len(all.Scenes) != 3 {
+		t.Fatalf("path with hidden: %+v", all)
+	}
+	for _, sc := range all.Scenes {
+		if sc.Hidden != (sc.ID == "mod/"+hidden) {
+			t.Fatalf("hidden flag on %s: %v", sc.ID, sc.Hidden)
+		}
+	}
+	// A hidden unit still renders (and reports why it is not on the path).
+	resp, err := http.Get(ts.URL + "/api/unit/mod/" + hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unit struct {
+		Title   string `json:"title"`
+		Variant string `json:"variant"`
+		Hidden  bool   `json:"hidden"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&unit); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if !unit.Hidden || unit.Variant != "scene="+hidden {
+		t.Fatalf("hidden unit payload: %+v", unit)
+	}
+
+	// The draw is readable, and an author can switch it.
+	var vj struct {
+		Keys  map[string][]string `json:"keys"`
+		Picks map[string]string   `json:"picks"`
+	}
+	respV, err := http.Get(ts.URL + "/api/variants")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(respV.Body).Decode(&vj); err != nil {
+		t.Fatal(err)
+	}
+	respV.Body.Close()
+	if strings.Join(vj.Keys["scene"], ",") != "forest,meadow" || vj.Picks["scene"] != shown {
+		t.Fatalf("variants payload: %+v", vj)
+	}
+	respS, err := http.Post(ts.URL+"/api/variants/scene/"+hidden, "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	respS.Body.Close()
+	if respS.StatusCode != 200 {
+		t.Fatalf("select variant: %s", respS.Status)
+	}
+	after := getPath(t, ts.URL+"/api/path")
+	if len(after.Scenes) != 2 || after.Scenes[1].ID != "mod/"+hidden {
+		t.Fatalf("path after switch: %+v", after)
+	}
+	respX, err := http.Post(ts.URL+"/api/variants/scene/desert", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	respX.Body.Close()
+	if respX.StatusCode != 400 {
+		t.Fatalf("select unknown value: %s", respX.Status)
+	}
+}
+
+func TestVariantSelectionDisabledInLiveMode(t *testing.T) {
+	s, _ := variantServer(t, true)
+	ts := httptest.NewServer(s.mux)
+	defer ts.Close()
+	resp, err := http.Post(ts.URL+"/api/variants/scene/forest", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("live mode select: %s, want 404", resp.Status)
+	}
+	// Reading the draw stays available.
+	respG, err := http.Get(ts.URL + "/api/variants")
+	if err != nil {
+		t.Fatal(err)
+	}
+	respG.Body.Close()
+	if respG.StatusCode != 200 {
+		t.Fatalf("live mode read: %s", respG.Status)
+	}
+}

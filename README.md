@@ -110,7 +110,7 @@ paths/<path>/              # path.yaml: id, title, user
     010.module-a/          # numeric prefix defines order
         module.md          # optional module intro (static)
         010.unit-x/
-            unit.md        # a signle "rep" (tasks + checks)
+            unit.md        # a single "rep" (tasks + checks)
     020.module-b/          # another module
         ...
 ```
@@ -123,6 +123,7 @@ paths/<path>/              # path.yaml: id, title, user
 - **Task** - one verifiable condition inside a unit. A unit completes when all of its tasks are met.
 
 Units can be parametric (randomized directory names, tokens, ports),
+come in variants (a different rep in the same slot, drawn per attempt),
 depend on the state left behind by earlier units, and be filtered by
 distro or host capabilities. Full format reference:
 [authoring-guide.md](docs/authoring-guide.md).

@@ -91,6 +91,7 @@ Units and modules are identified by their prefix-less folder names
 title: Change into a directory
 labels: [ubuntu, debian]   # distro filter (os-release ID/ID_LIKE); empty = any
 requires: [systemd]        # host capability filter; unmet -> unit dropped
+variant: scene=forest      # per-attempt draw: one value per key, other values hidden
 needs: [make-a-home]       # units (same module) whose *state* this unit builds on
 vars:
   DIRNAME: { pick: [alpha, bravo, charlie] }   # random choice, sticky per attempt
@@ -120,6 +121,13 @@ tasks:
 - **Filtering**: `labels` matches the running distro; `requires` matches
   detected host capabilities (currently `systemd`). Both filters apply at
   load time.
+- **Variants**: `variant: key=value` tags a unit. The engine draws one
+  value per key when the path is first served (`state.Data.Variants`,
+  persisted, fresh per attempt) and marks units tagged with other values
+  `Hidden`. Hidden units stay in the model - activatable, listed by
+  `/api/path?hidden=1` - so `shellgym solve` covers every variant in one
+  walk; the web UI never shows them. Dependencies (`needs:`, `from:`) may
+  only point at units always shown alongside the dependent.
 - **Init scripts** run in order, as root, once per activation; they create
   files as root and `chown` to the student. Failures surface to the UI
   (author-facing) and block the unit's tasks; a later activation retries.
@@ -207,8 +215,8 @@ A directory per path under `--state` (default `/var/lib/shellgym`):
 
 ```
 <state>/<path-id>/
-  progress.json            # unit/task statuses, vars, timestamps (small,
-                           # atomic tmp+rename writes)
+  progress.json            # unit/task statuses, vars, variant draw,
+                           # timestamps (small, atomic tmp+rename writes)
   runs/<module>__<unit>/<task>.jsonl   # last N run records per task
 ```
 
@@ -230,7 +238,9 @@ they never bloat the progress document. The debug API reads them back.
 
 ## HTTP API (consumed by the web UI and `shellgym solve`)
 
-- `GET  /api/path` - path tree + per-unit status + progress counters
+- `GET  /api/path[?hidden=1]` - path tree + per-unit status + progress
+  counters; units hidden by the variant draw are listed (flagged) only
+  with `hidden=1`, and never counted
 - `GET  /api/unit/{id}` - rendered unit (HTML, tasks, vars)
 - `POST /api/activate/{id}` - make unit current (resolve vars, run init).
   Returns 409 for a *locked* unit - one whose `needs:` dependencies are
@@ -241,6 +251,9 @@ they never bloat the progress document. The debug API reads them back.
 - `POST /api/module-seen/{id}` - mark a module intro viewed
 - `GET  /api/module/{id}` - rendered module intro
 - `GET  /api/debug/{id}` - task run history (404 in live mode)
+- `GET  /api/variants` - variant keys with value pools + the current draw
+- `POST /api/variants/{key}/{value}` - switch the draw for one key
+  (authoring preview; 404 in live mode)
 - `GET  /api/status` - distro, exec source, live flag, observed shells
 - `GET  /api/events` - WebSocket event stream
 - `GET  /unit-assets/{id}/...` - unit-local static files

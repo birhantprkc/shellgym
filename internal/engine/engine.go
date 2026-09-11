@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"regexp"
 	"strings"
 	"sync"
@@ -115,7 +116,7 @@ type Engine struct {
 
 func New(p *content.Path, st *state.Store, b *bus.Bus, w *ExecWatcher, opts Options) *Engine {
 	opts.defaults()
-	return &Engine{
+	e := &Engine{
 		Path:    p,
 		Store:   st,
 		Bus:     b,
@@ -123,6 +124,100 @@ func New(p *content.Path, st *state.Store, b *bus.Bus, w *ExecWatcher, opts Opti
 		Opts:    opts,
 		runner:  &scriptRunner{checksDir: opts.ChecksDir, sockPath: opts.SockPath},
 	}
+	if err := e.drawVariants(); err != nil {
+		log.Printf("engine: draw variants: %v", err)
+	}
+	return e
+}
+
+// drawVariants completes the path's per-attempt variant draw: every
+// variant key without a persisted (and still valid) pick gets a value
+// chosen uniformly at random, the draw is persisted, and the path's units
+// are hidden or shown accordingly. Idempotent: a daemon restart keeps the
+// picks, so the student sees the same units as before.
+func (e *Engine) drawVariants() error {
+	keys := e.Path.VariantKeys()
+	if len(keys) == 0 {
+		return nil
+	}
+	changed := false
+	var picks map[string]string
+	e.Store.View(func(d *state.Data) {
+		picks = map[string]string{}
+		for k, v := range d.Variants {
+			picks[k] = v
+		}
+	})
+	for k, vals := range keys {
+		if contains(vals, picks[k]) {
+			continue
+		}
+		if picks[k] != "" {
+			log.Printf("engine: variant %s=%s no longer exists, re-drawing", k, picks[k])
+		}
+		picks[k] = vals[rand.Intn(len(vals))]
+		changed = true
+	}
+	e.Path.ApplyVariants(picks)
+	if !changed {
+		return nil
+	}
+	return e.Store.Update(func(d *state.Data) { d.Variants = picks })
+}
+
+// Variants reports the path's variant keys with their value pools and the
+// values drawn for this attempt.
+func (e *Engine) Variants() (keys map[string][]string, picks map[string]string) {
+	keys = e.Path.VariantKeys()
+	picks = map[string]string{}
+	e.Store.View(func(d *state.Data) {
+		for k, v := range d.Variants {
+			if _, ok := keys[k]; ok {
+				picks[k] = v
+			}
+		}
+	})
+	return keys, picks
+}
+
+// SelectVariant overrides the draw for one key (an authoring affordance:
+// preview the units of another variant without a fresh attempt). Progress
+// is untouched - units of the previous value keep their status, they just
+// leave the student's path.
+func (e *Engine) SelectVariant(key, value string) error {
+	vals, ok := e.Path.VariantKeys()[key]
+	if !ok {
+		return fmt.Errorf("unknown variant key %q", key)
+	}
+	if !contains(vals, value) {
+		return fmt.Errorf("variant key %q has no value %q (have %v)", key, value, vals)
+	}
+	var picks map[string]string
+	err := e.Store.Update(func(d *state.Data) {
+		if d.Variants == nil {
+			d.Variants = map[string]string{}
+		}
+		d.Variants[key] = value
+		picks = map[string]string{}
+		for k, v := range d.Variants {
+			picks[k] = v
+		}
+	})
+	if err != nil {
+		return err
+	}
+	e.Path.ApplyVariants(picks)
+	e.Bus.Publish(bus.Event{Type: "variants", Data: picks})
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Resume re-activates the persisted current unit (after daemon restart).
@@ -368,9 +463,10 @@ func (e *Engine) MarkModuleSeen(id string) error {
 }
 
 // UnitStatuses reports every unit's status keyed by unit id: "pending",
-// "active", "completed", or "unsupported" (the unit cannot be trained on this
-// host, see content.Unit.Unsupported). Module intro scenes are not units and
-// are not included.
+// "active", "completed", "unsupported" (the unit cannot be trained on this
+// host, see content.Unit.Unsupported), or "hidden" (not part of this
+// attempt's variant draw, see content.Unit.Hidden). Module intro scenes are
+// not units and are not included.
 func (e *Engine) UnitStatuses() map[string]string {
 	out := map[string]string{}
 	e.Store.View(func(d *state.Data) {
@@ -378,6 +474,10 @@ func (e *Engine) UnitStatuses() map[string]string {
 			for _, u := range m.Units {
 				if u.Unsupported {
 					out[u.ID] = "unsupported"
+					continue
+				}
+				if u.Hidden {
+					out[u.ID] = "hidden"
 					continue
 				}
 				status := string(state.UnitPending)

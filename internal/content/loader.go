@@ -163,6 +163,13 @@ func loadUnit(dir, folder, moduleID string) (*Unit, error) {
 	if u.Front.Title == "" {
 		return nil, fmt.Errorf("unit %s: missing title", folder)
 	}
+	if u.Front.Variant != "" {
+		v, err := ParseVariant(u.Front.Variant)
+		if err != nil {
+			return nil, fmt.Errorf("unit %s: %w", folder, err)
+		}
+		u.Variant = v
+	}
 
 	names := make([]string, 0, len(u.Front.Tasks))
 	for tname, t := range u.Front.Tasks {
@@ -289,6 +296,9 @@ func validate(p *Path) error {
 				if dep.Order >= u.Order {
 					return fmt.Errorf("unit %s: needs %q which does not precede it", u.ID, need)
 				}
+				if err := validateVariantDep(u, dep); err != nil {
+					return err
+				}
 			}
 			if depth := unitDepDepth(u, unitByName, 0); depth > 5 {
 				return fmt.Errorf("unit %s: dependency chain longer than 5", u.ID)
@@ -311,6 +321,9 @@ func validate(p *Path) error {
 				if _, exists := dep.Front.Vars[refVar]; !exists {
 					return fmt.Errorf("unit %s: var %s: unit %q has no var %q", u.ID, vn, refUnit, refVar)
 				}
+				if err := validateVariantDep(u, dep); err != nil {
+					return err
+				}
 			}
 			if err := validateTasks(u); err != nil {
 				return err
@@ -318,6 +331,20 @@ func validate(p *Path) error {
 		}
 	}
 	return nil
+}
+
+// validateVariantDep rejects a dependency (needs: or from:) on a unit that
+// may be hidden while the dependent is shown: the dep must be unconditional
+// or in the same variant. Values of different keys are drawn independently,
+// so even "usually together" is not good enough.
+func validateVariantDep(u, dep *Unit) error {
+	if dep.Variant.IsZero() || dep.Variant == u.Variant {
+		return nil
+	}
+	if u.Variant.IsZero() {
+		return fmt.Errorf("unit %s: depends on %q, which is only shown in variant %s (an always-shown unit may only depend on always-shown units)", u.ID, dep.Name, dep.Variant)
+	}
+	return fmt.Errorf("unit %s (variant %s): depends on %q, which is in variant %s (dependencies must be always-shown or in the same variant)", u.ID, u.Variant, dep.Name, dep.Variant)
 }
 
 func unitDepDepth(u *Unit, byName map[string]*Unit, depth int) int {

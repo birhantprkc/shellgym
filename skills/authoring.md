@@ -73,6 +73,7 @@ shellUser: laborant     # the login user whose shells are observed
 title: Change into a directory        # required
 labels: [ubuntu, debian]              # optional distro filter (ID/ID_LIKE)
 requires: [systemd]                   # optional host capability filter
+variant: scene=forest                 # optional: shown only when "forest" is drawn for "scene"
 needs: [earlier-unit]                 # optional same-module state deps
 vars:
   DIRNAME: { pick: [alpha, bravo] }   # random choice, sticky per attempt
@@ -110,6 +111,18 @@ Rules and behaviors:
   that host. `labels` matches `ID`/`ID_LIKE` from `/etc/os-release`
   (`ubuntu`, `debian`, `rocky`, ...); `requires` matches detected
   capabilities (currently: `systemd`).
+- **Variants** swap whole units where vars only vary details:
+  `variant: <key>=<value>` tags a unit (key/value: lowercase letters,
+  digits, dashes). When the path is first served, one value per key is
+  drawn uniformly from the values used across the path; units tagged
+  with the other values are hidden for that attempt. The draw is
+  persisted with the progress (survives restarts, fresh per attempt),
+  units without a variant are always shown, and keys draw
+  independently. A key can carry a storyline across modules: every
+  `scene=forest` unit appears in the same attempts. Rules: a unit may
+  `needs:`/`from:` only units that are always shown with it (no
+  variant, or the same key=value) - load-time error otherwise; a key
+  with one value is always drawn (validate warns).
 - **edge tasks** ("the student did X") run until they first exit 0,
   then stay completed forever; use blocking `wait_*` checks.
   **level tasks** ("X is currently true") are re-polled about once a
@@ -357,9 +370,11 @@ tasks, bad task graphs, invalid unit deps and `from:` references, and
 markdown that does not render. `solve` is the real test: it spawns an
 interactive bash on a pty (indistinguishable from a student), activates
 each unit through the API, types the solve lines, and waits for
-completion, reporting PASS/FAIL per unit. A unit whose `needs:` are not
-solved cannot be activated - even by `solve --unit`; solve its chain
-first (or run without `--unit`, which walks the path in order).
+completion, reporting PASS/FAIL per unit. Units hidden by the variant
+draw are solved too (`[key=value, hidden]`), so one run covers every
+variant. A unit whose `needs:` are not solved cannot be activated - even
+by `solve --unit`; solve its chain first (or run without `--unit`, which
+walks the path in order).
 
 Debugging a failing unit - every check attempt's exit code, stdout,
 stderr, and duration is recorded:
@@ -369,4 +384,6 @@ stderr, and duration is recorded:
 - on disk under `<state>/<path-id>/runs/`.
 
 `POST /api/reset/<unit-id>` forgets a unit's progress and re-runs its
-init from scratch - the fast iteration loop while authoring.
+init from scratch - the fast iteration loop while authoring. `POST
+/api/variants/<key>/<value>` switches the variant draw to preview the
+other units (the debug drawer offers the same switch).

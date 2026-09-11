@@ -6,6 +6,8 @@ package content
 import (
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 )
 
 // TaskMode determines how the validation engine treats a task.
@@ -58,10 +60,14 @@ type Frontmatter struct {
 	// Requires lists host capabilities the unit depends on (currently:
 	// "systemd", "python3"). Units whose requirements the runtime lacks
 	// are marked Unsupported at load time: still shown, never run.
-	Requires []string           `yaml:"requires"`
-	Vars     map[string]VarSpec `yaml:"vars"`
-	Init     []InitTask         `yaml:"init"`
-	Tasks    map[string]*Task   `yaml:"tasks"`
+	Requires []string `yaml:"requires"`
+	// Variant ("key=value") makes the unit part of a variant of the path:
+	// for every key one value is drawn per attempt, and units carrying
+	// another value of that key are hidden. See Path.ApplyVariants.
+	Variant string             `yaml:"variant"`
+	Vars    map[string]VarSpec `yaml:"vars"`
+	Init    []InitTask         `yaml:"init"`
+	Tasks   map[string]*Task   `yaml:"tasks"`
 }
 
 // Unit is a single scene with one or more tasks.
@@ -80,6 +86,82 @@ type Unit struct {
 	// missing capabilities itself, or (transitively) builds on a unit that
 	// does. Unsupported units stay browsable but are never activated.
 	Unsupported bool
+	// Variant is the parsed `variant:` field (zero when unset).
+	Variant Variant
+	// Hidden marks a unit whose variant value was not drawn for this
+	// attempt (see Path.ApplyVariants): it is left out of the student's
+	// path, but stays in the model - loadable, activatable - so authoring
+	// tools can still reach every unit.
+	Hidden bool
+}
+
+// Variant is a unit's "key=value" membership in a path variant.
+type Variant struct {
+	Key   string
+	Value string
+}
+
+// IsZero reports whether the unit belongs to no variant (always shown).
+func (v Variant) IsZero() bool { return v.Key == "" }
+
+func (v Variant) String() string {
+	if v.IsZero() {
+		return ""
+	}
+	return v.Key + "=" + v.Value
+}
+
+var variantRe = regexp.MustCompile(`^([a-z0-9][a-z0-9-]*)=([a-z0-9][a-z0-9-]*)$`)
+
+// ParseVariant parses a "key=value" variant spec (lowercase letters,
+// digits, and dashes on both sides).
+func ParseVariant(spec string) (Variant, error) {
+	m := variantRe.FindStringSubmatch(strings.TrimSpace(spec))
+	if m == nil {
+		return Variant{}, fmt.Errorf("variant %q: want key=value (lowercase letters, digits, and dashes)", spec)
+	}
+	return Variant{Key: m[1], Value: m[2]}, nil
+}
+
+// VariantKeys lists every variant key used in the path with its values
+// (sorted, deduplicated) - the pool each per-attempt draw picks from.
+func (p *Path) VariantKeys() map[string][]string {
+	seen := map[string]map[string]bool{}
+	for _, m := range p.Modules {
+		for _, u := range m.Units {
+			if u.Variant.IsZero() {
+				continue
+			}
+			if seen[u.Variant.Key] == nil {
+				seen[u.Variant.Key] = map[string]bool{}
+			}
+			seen[u.Variant.Key][u.Variant.Value] = true
+		}
+	}
+	out := make(map[string][]string, len(seen))
+	for k, vals := range seen {
+		for v := range vals {
+			out[k] = append(out[k], v)
+		}
+		sort.Strings(out[k])
+	}
+	return out
+}
+
+// ApplyVariants marks units Hidden according to the drawn values: a unit
+// with variant key=value stays visible only if picks[key] == value. Units
+// without a variant, and units whose key has no pick, are always visible.
+func (p *Path) ApplyVariants(picks map[string]string) {
+	for _, m := range p.Modules {
+		for _, u := range m.Units {
+			if u.Variant.IsZero() {
+				u.Hidden = false
+				continue
+			}
+			pick, ok := picks[u.Variant.Key]
+			u.Hidden = ok && pick != u.Variant.Value
+		}
+	}
 }
 
 // Module groups units; may have an intro scene (module.md).
@@ -110,7 +192,8 @@ type Scene struct {
 	Unit   *Unit
 }
 
-// Scenes returns the linear scene sequence of the path.
+// Scenes returns the linear scene sequence of the path, hidden units
+// included (callers presenting the path to a student skip Unit.Hidden).
 func (p *Path) Scenes() []Scene {
 	var out []Scene
 	for _, m := range p.Modules {

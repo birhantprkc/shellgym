@@ -172,7 +172,8 @@ every script.
 
 `/units/watch` is a Server-Sent Events stream, not a check. It opens with a
 `snapshot` event (`{"path": "...", "units": {"<unit id>": "pending|active|
-completed|unsupported", ...}}`), then emits a `unit` event
+completed|unsupported|hidden", ...}}` - `hidden` units are left out of this
+attempt by the variant draw and need not complete), then emits a `unit` event
 (`{"id": "...", "status": "..."}`) whenever a unit's status changes, plus a
 `: keepalive` comment every 15 seconds so a client can tell a quiet daemon
 from a dead one. A client resyncs from the snapshot on every (re)connect, so a

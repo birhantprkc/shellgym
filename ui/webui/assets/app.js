@@ -15,6 +15,7 @@ const state = {
   autoAdvance: true,
   sceneEl: null,     // current .scene element
   unitTasks: [],     // tasks of the unit scene on screen (name/status/needs)
+  unitVariant: '',   // "key=value" of the unit on screen ('' = always shown)
   animating: false,
   debugOpen: false,
   live: false,
@@ -161,6 +162,7 @@ async function buildUnitScene(meta) {
   // unit.html is server-rendered trusted content (the author's markdown)
   $('.scene-body', el).innerHTML = unit.html;
   state.unitTasks = unit.tasks || [];
+  state.unitVariant = unit.variant || '';
   for (const t of state.unitTasks) {
     const box = $(`.task-box[data-task="${cssEsc(t.name)}"]`, el);
     if (!box) continue;
@@ -505,7 +507,9 @@ function toggleDebug() {
 
 async function refreshDebug() {
   const unit = currentUnitId();
-  $('#debug-unit').textContent = unit || '(module scene)';
+  $('#debug-unit').textContent = (unit || '(module scene)') +
+    (unit && state.unitVariant ? ` · variant ${state.unitVariant}` : '');
+  renderDebugVariants().catch(() => {});
   const body = $('#debug-body');
   if (!unit) { body.replaceChildren(); return; }
   const tasks = await fetchJSON(`/api/debug/${unit}`).catch(() => []);
@@ -515,6 +519,47 @@ async function refreshDebug() {
     h.textContent = t.name;
     body.appendChild(h);
     for (const r of (t.runs || []).slice(-5).reverse()) body.appendChild(runRow(r));
+  }
+}
+
+// renderDebugVariants shows the path's variant draw: per key, the drawn
+// value and buttons for the others. Switching re-applies the draw on the
+// daemon and re-lands on the path's next open scene, since the scene on
+// screen may have just left the path.
+async function renderDebugVariants() {
+  const row = $('#debug-variants');
+  const { keys, picks } = await fetchJSON('/api/variants');
+  const names = Object.keys(keys || {}).sort();
+  row.hidden = names.length === 0;
+  for (const old of row.querySelectorAll('.debug-variant-group')) old.remove();
+  for (const key of names) {
+    const group = document.createElement('span');
+    group.className = 'debug-variant-group';
+    const label = document.createElement('span');
+    label.className = 'debug-variant-key';
+    label.textContent = `${key}:`;
+    group.appendChild(label);
+    for (const value of keys[key]) {
+      const current = value === picks[key];
+      const el = document.createElement(current ? 'span' : 'button');
+      el.className = 'debug-variant' + (current ? ' current' : '');
+      el.textContent = value;
+      if (!current) {
+        el.title = `Show the ${key}=${value} units instead`;
+        el.addEventListener('click', async () => {
+          try {
+            const r = await fetch(`/api/variants/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, { method: 'POST' });
+            if (!r.ok) throw new Error(await r.text());
+            await refreshPath();
+            await showScene(startSceneIndex(), 0);
+          } catch (e) {
+            el.textContent = `${value} (${e.message.trim()})`;
+          }
+        });
+      }
+      group.appendChild(el);
+    }
+    row.appendChild(group);
   }
 }
 

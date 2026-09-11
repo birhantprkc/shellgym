@@ -58,6 +58,8 @@ func New(addr string, eng *engine.Engine, b *bus.Bus, opts ...Options) *Server {
 	m.HandleFunc("POST /api/module-seen/{id...}", s.handleModuleSeen)
 	m.HandleFunc("GET /api/module/{id...}", s.handleModule)
 	m.HandleFunc("GET /api/debug/{id...}", s.handleDebug)
+	m.HandleFunc("GET /api/variants", s.handleVariants)
+	m.HandleFunc("POST /api/variants/{key}/{value}", s.handleSelectVariant)
 	m.HandleFunc("GET /api/status", s.handleStatus)
 	m.HandleFunc("GET /api/events", s.handleEvents)
 	m.HandleFunc("GET /unit-assets/{rest...}", s.handleUnitAsset)
@@ -96,6 +98,12 @@ type sceneJSON struct {
 	// capabilities, directly or via a needed unit): browsable, never
 	// activatable, excluded from the path's progress total.
 	Unsupported bool `json:"unsupported,omitempty"`
+	// Variant is the unit's "key=value" variant membership, if any.
+	Variant string `json:"variant,omitempty"`
+	// Hidden marks units left out of this attempt by the variant draw.
+	// Listed only on request (?hidden=1, for authoring tools); excluded
+	// from the progress counters.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 type pathJSON struct {
@@ -110,10 +118,14 @@ type pathJSON struct {
 
 func (s *Server) handlePath(w http.ResponseWriter, r *http.Request) {
 	p := s.Engine.Path
+	withHidden := r.URL.Query().Get("hidden") != ""
 	out := pathJSON{ID: p.ID, Title: p.Title, Description: p.Description}
 	s.Engine.Store.View(func(d *state.Data) {
 		out.Current = d.CurrentUnit
 		for _, sc := range p.Scenes() {
+			if sc.Kind == "unit" && sc.Unit.Hidden && !withHidden {
+				continue
+			}
 			switch sc.Kind {
 			case "module":
 				st := "pending"
@@ -125,21 +137,25 @@ func (s *Server) handlePath(w http.ResponseWriter, r *http.Request) {
 					Title: sc.Module.Title, Status: st,
 				})
 			case "unit":
-				if !sc.Unit.Unsupported {
-					out.Total++
-				}
 				st := "pending"
 				if us, ok := d.Units[sc.Unit.ID]; ok {
 					st = string(us.Status)
 				}
-				if st == string(state.UnitCompleted) {
-					out.Completed++
+				if !sc.Unit.Hidden {
+					if !sc.Unit.Unsupported {
+						out.Total++
+					}
+					if st == string(state.UnitCompleted) {
+						out.Completed++
+					}
 				}
 				out.Scenes = append(out.Scenes, sceneJSON{
 					Kind: "unit", ID: sc.Unit.ID, ModuleID: sc.Unit.ModuleID,
 					Title: sc.Unit.Front.Title, Status: st,
 					Locked:      engine.UnitLockedIn(p, d, sc.Unit.ID),
 					Unsupported: sc.Unit.Unsupported,
+					Variant:     sc.Unit.Variant.String(),
+					Hidden:      sc.Unit.Hidden,
 				})
 			}
 		}
@@ -170,6 +186,10 @@ type unitJSON struct {
 	// when the unit itself has unmet requires:) feeds the badge text.
 	Unsupported bool     `json:"unsupported,omitempty"`
 	MissingCaps []string `json:"missingCaps,omitempty"`
+	// Variant is the unit's "key=value" membership; Hidden is set when that
+	// value was not drawn for this attempt (see sceneJSON).
+	Variant string `json:"variant,omitempty"`
+	Hidden  bool   `json:"hidden,omitempty"`
 }
 
 func (s *Server) handleUnit(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +223,8 @@ func (s *Server) handleUnit(w http.ResponseWriter, r *http.Request) {
 	}
 	out := unitJSON{ID: u.ID, Title: title, Module: u.ModuleID, HTML: html, Status: "pending",
 		Locked: s.Engine.UnitLocked(id), Vars: vars,
-		Unsupported: u.Unsupported, MissingCaps: u.MissingCaps}
+		Unsupported: u.Unsupported, MissingCaps: u.MissingCaps,
+		Variant: u.Variant.String(), Hidden: u.Hidden}
 	s.Engine.Store.View(func(d *state.Data) {
 		us := d.Unit(id)
 		out.Status = string(us.Status)
@@ -300,6 +321,33 @@ func sortTaskNames(names []string) {
 			}
 		}
 	}
+}
+
+type variantsJSON struct {
+	// Keys maps every variant key to its value pool; Picks to the value
+	// drawn for this attempt.
+	Keys  map[string][]string `json:"keys"`
+	Picks map[string]string   `json:"picks"`
+}
+
+func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
+	keys, picks := s.Engine.Variants()
+	writeJSON(w, variantsJSON{Keys: keys, Picks: picks})
+}
+
+// handleSelectVariant overrides the draw for one key - an authoring tool
+// (preview the other units), disabled in live mode like the debug API.
+func (s *Server) handleSelectVariant(w http.ResponseWriter, r *http.Request) {
+	if s.Opts.Live {
+		http.Error(w, "variant selection is disabled in live mode", 404)
+		return
+	}
+	if err := s.Engine.SelectVariant(r.PathValue("key"), r.PathValue("value")); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	keys, picks := s.Engine.Variants()
+	writeJSON(w, variantsJSON{Keys: keys, Picks: picks})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

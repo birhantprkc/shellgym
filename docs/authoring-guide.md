@@ -45,6 +45,9 @@ the student typing real commands until the motions become automatic.
 - **Scene** - the state of the system for the student to act on.
 - **Vars** - per-unit parameters (fixed, random, or inherited) that
   make a rep look different on every attempt.
+- **Variant** - a `key=value` tag on a unit. Per attempt one value is
+  drawn for each key, and units tagged with the other values of that
+  key are left out of the path.
 - **Activation** - the moment a unit becomes the student's current
   exercise; init scripts run and vars resolve once per activation.
 - **Observed user** - the login user declared as `shellUser` in
@@ -93,6 +96,7 @@ The complete field reference:
 title: Change into a directory        # required
 labels: [ubuntu, debian]              # optional distro filter
 requires: [systemd]                   # optional host capability filter
+variant: scene=forest                 # optional: shown only when "forest" is drawn for "scene"
 needs: [earlier-unit]                 # optional same-module state deps
 vars:
   DIRNAME: { pick: [alpha, bravo] }   # random choice, sticky per attempt
@@ -167,6 +171,41 @@ values between tasks and units - never stash such values in files; use
 a file only when the data is BLOB-like (content rather than a value).
 Because their value does not exist at render time, task vars cannot be
 interpolated into markdown or referenced with `from:`.
+
+### Variants
+
+Vars vary the details of a rep. When a slot in the path should sometimes
+hold a *different* rep - another scenario drilling the same skill - tag
+the alternatives with `variant: <key>=<value>`:
+
+```
+040.redirection-and-pipes/
+  030.count-with-pipes/          # variant: haystack=journal
+  035.count-files-with-pipes/    # variant: haystack=files
+```
+
+Each is an ordinary unit with its own folder, id, and progress. When the
+path is first served, the daemon draws one value for every key it finds
+(uniformly from the values used across the path) and hides the units
+tagged with the other values. The draw is part of the progress record:
+it survives daemon restarts and is made afresh with every new attempt
+at the path (a new playground, an empty state directory). Units without
+a `variant:` are always shown.
+
+Because the draw is path-wide, a key can carry a storyline: a unit in a
+later module tagged `scene=forest` appears exactly when the earlier
+`scene=forest` units did, so a scenario can continue across modules.
+Keys are drawn independently, and values of one key need not have the
+same number of units each.
+
+Rules that follow:
+
+- a unit may `needs:` or `from:` only units that are always shown
+  alongside it - units without a variant, or in the same `key=value`
+  (load-time error otherwise);
+- a key with a single value across the path is always drawn, so its
+  units are always shown - `validate` warns about that;
+- key and value are lowercase letters, digits, and dashes.
 
 ### Init scripts
 
@@ -370,7 +409,8 @@ does not render.
 `solve` is the real test: it spawns an interactive bash on a pty
 (indistinguishable from a student to the daemon), activates each unit
 through the API, types the solve lines, and waits for completion. It
-reports PASS/FAIL per unit.
+reports PASS/FAIL per unit. Units hidden by the variant draw are solved
+too (marked `[key=value, hidden]`), so one run covers every variant.
 
 When a unit fails, look at the recorded check runs - every attempt's
 exit code, stdout, stderr, and duration is kept:
@@ -380,7 +420,10 @@ exit code, stdout, stderr, and duration is kept:
 - on disk under `<state>/<path-id>/runs/`.
 
 Iterate with `POST /api/reset/<unit-id>` to forget a unit's progress
-and re-run its init from scratch.
+and re-run its init from scratch. To preview the units of another
+variant, switch the draw with `POST /api/variants/<key>/<value>` (the
+debug drawer lists the keys and offers the same switch); `GET
+/api/variants` shows the pools and the current draw.
 
 Shell Gym content for iximiuz Labs runs on playgrounds - see the
 [development notes in the README](../README.md#development-workflow) for

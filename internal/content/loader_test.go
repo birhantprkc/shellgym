@@ -357,3 +357,106 @@ x
 		t.Fatalf("solve = %q", got)
 	}
 }
+
+func withFront(extra string) string {
+	return strings.Replace(minimalUnit, "title: A unit", "title: A unit\n"+extra, 1)
+}
+
+func TestVariants(t *testing.T) {
+	dir := scaffold(t, map[string]string{
+		"010.m/010.always/unit.md":  minimalUnit,
+		"010.m/020.forest/unit.md":  withFront("variant: scene=forest"),
+		"010.m/030.meadow/unit.md":  withFront("variant: scene=meadow"),
+		"010.m/040.night/unit.md":   withFront("variant: time=night"),
+		"020.n/010.forest2/unit.md": withFront("variant: scene=forest\nneeds: []"),
+		"020.n/020.day/unit.md":     withFront("variant: time=day"),
+	})
+	p, err := Load(dir, "ubuntu", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := p.Unit("m/forest").Variant; v.Key != "scene" || v.Value != "forest" || v.String() != "scene=forest" {
+		t.Fatalf("parsed variant: %+v", v)
+	}
+	if !p.Unit("m/always").Variant.IsZero() {
+		t.Fatal("unit without variant: must be zero")
+	}
+	keys := p.VariantKeys()
+	if len(keys) != 2 || strings.Join(keys["scene"], ",") != "forest,meadow" || strings.Join(keys["time"], ",") != "day,night" {
+		t.Fatalf("variant keys: %v", keys)
+	}
+
+	// Before any draw nothing is hidden; a draw hides the other values of
+	// each key, path-wide, and leaves unconditional units alone.
+	for _, u := range p.Modules[0].Units {
+		if u.Hidden {
+			t.Fatalf("%s hidden before a draw", u.ID)
+		}
+	}
+	p.ApplyVariants(map[string]string{"scene": "forest", "time": "night"})
+	want := map[string]bool{
+		"m/always": false, "m/forest": false, "m/meadow": true, "m/night": false,
+		"n/forest2": false, "n/day": true,
+	}
+	for id, hidden := range want {
+		if p.Unit(id).Hidden != hidden {
+			t.Errorf("%s: hidden=%v, want %v", id, p.Unit(id).Hidden, hidden)
+		}
+	}
+	// Re-applying with another draw flips accordingly (no sticky state).
+	p.ApplyVariants(map[string]string{"scene": "meadow"})
+	if !p.Unit("m/forest").Hidden || p.Unit("m/meadow").Hidden || p.Unit("n/day").Hidden {
+		t.Fatal("second draw not applied")
+	}
+}
+
+func TestVariantSyntax(t *testing.T) {
+	for _, bad := range []string{"scene", "scene=", "=forest", "Scene=forest", "scene=for est", "a=b=c"} {
+		dir := scaffold(t, map[string]string{"010.m/010.u/unit.md": withFront("variant: " + bad)})
+		if _, err := Load(dir, "ubuntu", nil, nil); err == nil || !strings.Contains(err.Error(), "want key=value") {
+			t.Errorf("variant %q: want syntax error, got %v", bad, err)
+		}
+	}
+}
+
+func TestVariantDependencyRules(t *testing.T) {
+	cases := []struct {
+		name  string
+		units map[string]string
+		want  string // "" = loads fine
+	}{
+		{"same variant", map[string]string{
+			"010.m/010.a/unit.md": withFront("variant: scene=forest"),
+			"010.m/020.b/unit.md": withFront("variant: scene=forest\nneeds: [a]"),
+		}, ""},
+		{"depends on unconditional", map[string]string{
+			"010.m/010.a/unit.md": minimalUnit,
+			"010.m/020.b/unit.md": withFront("variant: scene=forest\nneeds: [a]"),
+		}, ""},
+		{"unconditional depends on variant", map[string]string{
+			"010.m/010.a/unit.md": withFront("variant: scene=forest"),
+			"010.m/020.b/unit.md": withFront("needs: [a]"),
+		}, "always-shown unit may only depend"},
+		{"other value", map[string]string{
+			"010.m/010.a/unit.md": withFront("variant: scene=forest"),
+			"010.m/020.b/unit.md": withFront("variant: scene=meadow\nneeds: [a]"),
+		}, "is in variant scene=forest"},
+		{"other key", map[string]string{
+			"010.m/010.a/unit.md": withFront("variant: scene=forest"),
+			"010.m/020.b/unit.md": withFront("variant: time=night\nneeds: [a]"),
+		}, "is in variant scene=forest"},
+		{"from ref across variants", map[string]string{
+			"010.m/010.a/unit.md": withFront("variant: scene=forest\nvars:\n  X: { value: x }"),
+			"010.m/020.b/unit.md": withFront("variant: scene=meadow\nvars:\n  Y: { from: a.X }"),
+		}, "is in variant scene=forest"},
+	}
+	for _, c := range cases {
+		_, err := Load(scaffold(t, c.units), "ubuntu", nil, nil)
+		switch {
+		case c.want == "" && err != nil:
+			t.Errorf("%s: unexpected error: %v", c.name, err)
+		case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
+			t.Errorf("%s: want error containing %q, got %v", c.name, c.want, err)
+		}
+	}
+}

@@ -1,5 +1,6 @@
 ---
 title: Count matches with a pipe
+variant: haystack=journal
 vars:
   ANIMAL: { pick: [heron, badger, lynx, otter] }
 init:

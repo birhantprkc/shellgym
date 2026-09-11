@@ -60,11 +60,15 @@ type UnitState struct {
 
 // Data is the progress.json document.
 type Data struct {
-	PathID      string                `json:"pathId"`
-	CurrentUnit string                `json:"currentUnit"`
-	SeenModules map[string]bool       `json:"seenModules,omitempty"`
-	Units       map[string]*UnitState `json:"units"`
-	UpdatedAt   time.Time             `json:"updatedAt"`
+	PathID      string          `json:"pathId"`
+	CurrentUnit string          `json:"currentUnit"`
+	SeenModules map[string]bool `json:"seenModules,omitempty"`
+	// Variants holds the per-attempt draw: variant key -> chosen value
+	// (see content.Path.ApplyVariants). Drawn once when the path is first
+	// served and kept for the life of the progress record.
+	Variants  map[string]string     `json:"variants,omitempty"`
+	Units     map[string]*UnitState `json:"units"`
+	UpdatedAt time.Time             `json:"updatedAt"`
 }
 
 // Store owns one path's state directory.
