@@ -19,11 +19,12 @@ Ask this machine for its name.
 #active
 Waiting for you to ask the machine for its name...
 #completed
-One machine, one name. Many prompts show both at once as
-`user@machine` - now you know where each half comes from.
+Each machine has exactly one name. Many prompts show the user and the
+machine together as `user@machine`, and now you know where each half
+comes from.
 ::
 
 ::tip
-Press the **Up** arrow to bring back your previous command. Command
-history saves a lot of typing - you'll lean on it constantly.
+The **Tab** key completes half-typed command names. Try typing `hostn`
+and pressing Tab.
 ::

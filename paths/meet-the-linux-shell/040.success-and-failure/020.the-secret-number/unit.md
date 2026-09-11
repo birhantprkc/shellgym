@@ -15,16 +15,16 @@ tasks:
     check: |
       REPORT=$(wait_exec --latest '(^|/)(hostname|whoami)$')
       [[ "$REPORT" == *hostname* ]] && exit 0
-      hint_exit "You reported with whoami - but whoami is the answer for a status of 0, and the failing date left a different number. Reveal it again with: echo \$? right after the failing command, then report accordingly."
+      hint_exit "You reported with whoami, but whoami is the answer for a status of 0, and the failing date left a different number. Reveal it again with echo \$? right after the failing command, then report accordingly."
     hint: |
-      echo "Reveal the number with: echo \$? - since the command failed, it is NOT zero. Act accordingly."
+      echo "Reveal the number with echo \$? right after the failing command. Since the command failed, the number is not zero, so report accordingly."
     solve: |
       echo $?
       hostname
 ---
 
 Besides its output, every command leaves behind a hidden verdict: a
-number called the **exit status**. `0` means "all went well"; anything
+number called the **exit status**. `0` means "all went well". Anything
 else signals a problem. The shell stores the latest verdict in `$?`,
 and `echo` can reveal it:
 
@@ -32,21 +32,21 @@ and `echo` can reveal it:
 echo $?
 ```
 
-Each command overwrites the verdict - so read it *right after* the
+Each command overwrites the verdict, so read it *right after* the
 command you care about.
 
-Now, the assignment:
+The assignment has three steps:
 
 1. Run `date` with the bad option `--${BOGUS}` again.
 2. Immediately reveal its exit status.
-3. Report your finding: if the number is `0`, run `whoami`;
-   if it is anything else, run `hostname`.
+3. Report your finding. If the number is `0`, run `whoami`. If it is
+   anything else, run `hostname`.
 
 ::task{name="broke_it"}
 #active
 Waiting for the failing `date --${BOGUS}`...
 #completed
-Failed, as ordered. Now check the verdict it left behind.
+It failed, as ordered. Now check the verdict it left behind.
 ::
 
 ::task{name="reported"}
@@ -54,7 +54,7 @@ Failed, as ordered. Now check the verdict it left behind.
 Waiting for your report: `whoami` if the status was `0`, `hostname`
 otherwise...
 #completed
-It was `1` - a failure verdict, so `hostname` was the right report.
-You'll almost never *print* `$?` in daily work, but everything in the
+It was `1`, a failure verdict, so `hostname` was the right report.
+You will almost never *print* `$?` in daily work, but everything in the
 rest of this module quietly runs on it.
 ::

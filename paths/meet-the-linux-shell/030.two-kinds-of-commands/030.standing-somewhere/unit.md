@@ -11,18 +11,18 @@ tasks:
       /bin/pwd
 ---
 
-Another famous builtin: `pwd`. Every shell is always "standing" in some
-place on the machine - its **working directory** - and `pwd` prints
-where. (Moving around is a topic for a later path; today just take a
-look.)
+Another famous builtin is `pwd`. Every shell is always "standing" in
+some place on the machine, called its **working directory**, and `pwd`
+prints where. (Moving around is a topic for a later path. Today, just
+take a look.)
 
 Run `pwd` to see where you stand. Like `echo`, it has a standalone twin
-at `/bin/pwd` - run the twin too, and check that both agree.
+at `/bin/pwd`. Run the twin too, and check that both agree.
 
 ::task
 #active
 Waiting for the standalone `/bin/pwd` to report your location...
 #completed
-That place is your *home directory* - your account's own corner of the
+That place is your *home directory*: your account's own corner of the
 machine, and the spot where every new terminal of yours starts out.
 ::

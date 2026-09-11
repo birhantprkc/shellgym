@@ -6,7 +6,7 @@ tasks:
     check: |
       wait_exec --argc 2 '(^|/)date \+%A %d %B$'
     hint: |
-      echo "Wrap the whole recipe - plus sign included - in quotes: a single argument with spaces inside."
+      echo "Wrap the whole recipe, plus sign included, in quotes so it becomes a single argument with spaces inside."
     solve: |
       date '+%A %d %B'
 ---
@@ -20,12 +20,12 @@ of the month, `%B` the month name. This recipe prints something like
 +%A %d %B
 ```
 
-But there's a catch. The recipe must reach `date` as **one single
-argument** - and it contains spaces, which the shell uses to *split*
+There is a catch. The recipe must reach `date` as **one single
+argument**, and it contains spaces, which the shell uses to *split*
 arguments. Try it bare and `date` will complain about extra operands.
 
-The fix: wrap the recipe in quotes. Quotes tell the shell "keep this
-together, spaces and all" - and they are removed before the command
+The fix is to wrap the recipe in quotes. Quotes tell the shell "keep
+this together, spaces and all", and they are removed before the command
 sees the argument.
 
 ::task
@@ -33,13 +33,13 @@ sees the argument.
 Waiting for `date` to receive the three-part recipe as a single
 argument...
 #completed
-The quotes never reached `date` - the shell consumed them, and `date`
+The quotes never reached `date`. The shell consumed them, and `date`
 received one argument with its spaces preserved. Quoting is how you
 hand over any value that contains spaces.
 ::
 
 ::hint{title="date says: extra operand"}
-That's the unquoted attempt: the shell split your recipe into three
-separate arguments. Quote the whole thing - single or double quotes
+That is the unquoted attempt: the shell split your recipe into three
+separate arguments. Quote the whole thing. Single or double quotes
 both work here.
 ::

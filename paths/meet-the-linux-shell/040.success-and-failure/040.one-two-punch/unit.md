@@ -1,5 +1,5 @@
 ---
-title: Three commands, one line
+title: Three commands on one line
 tasks:
   rollcall:
     timeout: 45
@@ -8,25 +8,25 @@ tasks:
       wait_exec '(^|/)hostname$'
       wait_exec '(^|/)tty$'
     hint: |
-      echo "One line, three commands, two semicolons between them. Who, which machine, which terminal."
+      echo "You need one line with three commands (whoami, hostname, tty) and two semicolons between them."
     solve: |
       whoami; hostname; tty
 ---
 
-You don't have to run commands one prompt at a time. A semicolon `;`
-separates several commands on a single line; the shell runs them left
-to right, each one after the previous finishes - no matter whether it
+You do not have to run commands one prompt at a time. A semicolon `;`
+separates several commands on a single line. The shell runs them left
+to right, each one after the previous finishes, no matter whether it
 succeeded or failed.
 
-Do the full identity roll call - user name, machine name, terminal
-name - in **one line**.
+Do the full identity roll call (user name, machine name, terminal
+name) in **one line**.
 
 ::task
 #active
 Waiting for the one-line roll call: who you are, what machine you are on, on
 which terminal...
 #completed
-Three answers from one Enter press. `;` is the "and then" of the
-shell - blind sequencing, no questions asked. Next up: chaining that
-*does* ask questions.
+One Enter press produced three answers. The `;` is the "and then" of
+the shell: it sequences commands blindly and asks no questions. The
+next units introduce chaining that *does* ask questions.
 ::

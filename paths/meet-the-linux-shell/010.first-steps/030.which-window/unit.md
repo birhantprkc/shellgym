@@ -5,7 +5,7 @@ tasks:
     check: |
       wait_exec '(^|/)tty$'
     hint: |
-      echo "Three letters: tty. It prints something like /dev/pts/0."
+      echo "The command is three letters long: tty. It prints something like /dev/pts/0."
     solve: |
       tty
 ---
@@ -20,11 +20,6 @@ Run it here.
 #active
 Waiting for you to ask which terminal this is...
 #completed
-Something like `/dev/pts/0` - that's this window's own address. A second
-terminal window would report a different one.
-::
-
-::tip
-If the screen gets cluttered, **Ctrl-L** wipes it clean. Your command
-history stays intact - only the pixels are cleared.
+The output looks like `/dev/pts/0`, and that is this window's own
+address. A second terminal window would report a different one.
 ::

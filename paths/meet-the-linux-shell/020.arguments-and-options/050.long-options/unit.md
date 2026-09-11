@@ -5,7 +5,7 @@ tasks:
     check: |
       wait_exec '(^|/)date --utc$'
     hint: |
-      echo "Two dashes, then the word: --utc. One argument, no spaces inside it."
+      echo "Type two dashes and then the word: --utc. It is one argument with no spaces inside it."
     solve: |
       date --utc
 ---
@@ -20,7 +20,7 @@ Print the UTC time again, this time using the long spelling.
 #active
 Waiting for the UTC time via the long option...
 #completed
-Identical output. Short options are quicker to type; long options are
-easier to read later. In saved scripts, seasoned users prefer the long
-form for exactly that reason.
+The output is identical. Short options are quicker to type. Long
+options are easier to read later, which is why seasoned users prefer
+the long form in saved scripts.
 ::

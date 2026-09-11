@@ -1,8 +1,8 @@
 # First Steps
 
-Welcome to Shell Gym. On the left you have a real Linux terminal - not a
-simulation. The line ending with a blinking cursor is the **prompt**: the
-machine's way of saying "I'm ready, type something."
+Welcome to Shell Gym. On the left you have a real Linux terminal running
+on a real machine. The line ending with a blinking cursor is the
+**prompt**. It means the shell is ready for the next command.
 
 The routine is always the same: you type a command, press **Enter**, the
 machine does the work and prints its answer, and then a fresh prompt

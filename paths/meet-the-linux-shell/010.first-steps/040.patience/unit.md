@@ -12,24 +12,24 @@ tasks:
       sleep $NAP
 ---
 
-Not every command answers instantly. Some work for a while - and the
-prompt only comes back when they are **done**.
+Some commands take a while to finish, and the prompt only comes back
+when they are **done**.
 
 The command `sleep` does nothing on purpose: you give it a number of
 seconds, and it simply takes that long. Make this shell sleep for
-**${NAP} seconds**. The number is an *argument* - an extra word after
+**${NAP} seconds**. The number is an *argument*, an extra word after
 the command name, separated by a space.
 
 ::task
 #active
 Waiting for a ${NAP}-second nap...
 #completed
-Did you notice? No output at all, just the prompt returning after
-${NAP} seconds. Silence does not mean failure - many commands say
-nothing when all went well.
+There was no output at all, just the prompt returning after ${NAP}
+seconds. Silence does not mean failure. Many commands say nothing when
+all went well.
 ::
 
 ::hint{title="Nothing seems to happen?"}
 That is the point: while `sleep` runs, the prompt is gone and the shell
-is busy. Count to ${NAP} - the prompt will be back.
+is busy. Count to ${NAP} and the prompt will be back.
 ::
