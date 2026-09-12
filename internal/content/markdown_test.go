@@ -121,6 +121,19 @@ func TestRelativeImgRewrite(t *testing.T) {
 	}
 }
 
+func TestLinksOpenInNewTab(t *testing.T) {
+	src := "See [docs](https://example.com/x), https://auto.example.com and\n\n::hint{title=\"H\"}\n[inner](https://in.example.com)\n::\n"
+	html, err := RenderUnit(src, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, href := range []string{"https://example.com/x", "https://auto.example.com", "https://in.example.com"} {
+		if !strings.Contains(html, `href="`+href+`" target="_blank" rel="noopener"`) {
+			t.Errorf("link %s not opened in a new tab: %s", href, html)
+		}
+	}
+}
+
 func TestUnknownComponent(t *testing.T) {
 	if _, err := RenderUnit("::nope{}\n::", ""); err == nil {
 		t.Error("want error for unknown component")

@@ -10,8 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	ghtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // The markdown body supports MDC-style block components:
@@ -35,8 +39,31 @@ import (
 
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithParserOptions(parser.WithASTTransformers(
+		util.Prioritized(newTabLinks{}, 100),
+	)),
 	goldmark.WithRendererOptions(ghtml.WithUnsafe()),
 )
+
+// newTabLinks makes every link (and GFM autolink) open in a new tab: the unit
+// page is the student's workspace (terminal + live task state), and navigating
+// away from it mid-rep would be disruptive. rel=noopener keeps the opened page
+// from reaching back into ours via window.opener.
+type newTabLinks struct{}
+
+func (newTabLinks) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch n.Kind() {
+		case ast.KindLink, ast.KindAutoLink:
+			n.SetAttributeString("target", []byte("_blank"))
+			n.SetAttributeString("rel", []byte("noopener"))
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // RenderMarkdown renders plain markdown (no components) to HTML.
 func RenderMarkdown(src string) (string, error) {
