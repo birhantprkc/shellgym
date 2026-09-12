@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ import (
 func newSolveCmd() *cobra.Command {
 	var (
 		api        string
-		pathDir string
+		pathDir    string
 		unitFilter string
 		timeout    time.Duration
 	)
@@ -51,38 +52,60 @@ type studentShell struct {
 	f   *os.File
 	cmd *exec.Cmd
 	mu  sync.Mutex
-	out bytes.Buffer
-	seq int
+	// promptCount is the number of prompts the shell has printed so far,
+	// counted from the output stream as it arrives (see syncMarker).
+	promptCount int
 }
+
+// syncMarker is printed by the solve shell's PROMPT_COMMAND right before
+// every prompt. Counting its occurrences tells when a typed line has
+// finished executing, without altering the line itself - the daemon's
+// line watcher sees exactly what a student would have typed, so
+// $-anchored wait_line checks pass under solve too. The marker is never
+// typed, so keystroke echo cannot inflate the count.
+const syncMarker = "__SHELLGYM_SYNC__"
 
 func newStudentShell() (*studentShell, error) {
 	cmd := exec.Command("bash", "--norc", "-i")
 	cmd.Dir = os.Getenv("HOME")
-	cmd.Env = append(os.Environ(), "PS1=$ ", "TERM=dumb")
+	cmd.Env = append(os.Environ(), "PS1=$ ", "TERM=dumb", "PROMPT_COMMAND=echo "+syncMarker)
 	f, err := pty.Start(cmd)
 	if err != nil {
 		return nil, err
 	}
 	s := &studentShell{f: f, cmd: cmd}
 	go func() {
+		marker := []byte(syncMarker)
 		buf := make([]byte, 4096)
+		var carry []byte // tail of the previous chunk, for markers split across reads
 		for {
 			n, err := f.Read(buf)
 			if n > 0 {
-				s.mu.Lock()
-				s.out.Write(buf[:n])
-				if s.out.Len() > 1<<20 {
-					// keep the tail only
-					b := s.out.Bytes()
-					s.out = *bytes.NewBuffer(append([]byte(nil), b[len(b)-1<<19:]...))
+				data := append(carry, buf[:n]...)
+				if c := bytes.Count(data, marker); c > 0 {
+					s.mu.Lock()
+					s.promptCount += c
+					s.mu.Unlock()
 				}
-				s.mu.Unlock()
+				if len(data) > len(marker)-1 {
+					data = data[len(data)-(len(marker)-1):]
+				}
+				carry = append([]byte(nil), data...)
 			}
 			if err != nil {
 				return
 			}
 		}
 	}()
+	// Wait for the first prompt: TypeSync counts prompts, so typing must
+	// only ever start with the shell idle at one.
+	for deadline := time.Now().Add(10 * time.Second); s.prompts() == 0; {
+		if time.Now().After(deadline) {
+			s.Close()
+			return nil, fmt.Errorf("the shell printed no prompt within 10s")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	return s, nil
 }
 
@@ -92,30 +115,24 @@ func (s *studentShell) Close() {
 	_ = s.f.Close()
 }
 
-func (s *studentShell) contains(marker string) bool {
+// prompts returns the number of prompts the shell has printed so far.
+func (s *studentShell) prompts() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return bytes.Contains(s.out.Bytes(), []byte(marker))
+	return s.promptCount
 }
 
-// TypeSync types one command line and waits until the shell has finished
-// executing it. A sync marker is chained onto the same line; the marker
-// string is split in the sent text so the terminal's echo of the
-// keystrokes cannot match the scan.
+// TypeSync types one command line exactly as given and waits until the
+// shell prints its next prompt, i.e. has finished executing the line (a
+// trailing & returns to the prompt at once, as for a student).
 func (s *studentShell) TypeSync(line string, timeout time.Duration) error {
-	s.seq++
-	marker := fmt.Sprintf("__SYNC_%d__", s.seq)
-	sep := "; "
-	if strings.HasSuffix(strings.TrimSpace(line), "&") {
-		sep = " "
-	}
-	typed := fmt.Sprintf("%s%secho __SY''NC_%d__\n", line, sep, s.seq)
-	if _, err := s.f.WriteString(typed); err != nil {
+	before := s.prompts()
+	if _, err := s.f.WriteString(line + "\n"); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if s.contains("\n"+marker) || s.contains("\r"+marker) {
+		if s.prompts() > before {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -359,6 +376,7 @@ func solveUnit(c *apiClient, sh *studentShell, u *content.Unit, timeout time.Dur
 			if line == "" {
 				continue
 			}
+			line = expandVars(line, au.Vars)
 			if d, ok := strings.CutPrefix(line, "#!"); ok {
 				typed = true
 				if err := sh.Directive(strings.TrimSpace(d)); err != nil {
@@ -397,6 +415,26 @@ func solveUnit(c *apiClient, sh *studentShell, u *content.Unit, timeout time.Dur
 		time.Sleep(1 * time.Second)
 	}
 	return fmt.Errorf("not completed within %s", timeout)
+}
+
+// expandVars substitutes the unit's vars ($NAME and ${NAME}) into a solve
+// line before it is typed. A student types the literal value, and
+// wait_line checks judge the line exactly as typed - a reference like
+// `sleep $PAUSE && hostname` would never match what the unit asks for.
+// Other `$` references are left for bash to expand (the vars are exported
+// into the solve shell too, for uses like `$((PAUSE + 1))`).
+func expandVars(line string, vars map[string]string) string {
+	names := make([]string, 0, len(vars))
+	for k := range vars {
+		names = append(names, k)
+	}
+	// Longest first, so $PAUSE_MAX is not clobbered by $PAUSE.
+	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+	for _, name := range names {
+		line = strings.ReplaceAll(line, "${"+name+"}", vars[name])
+		line = regexp.MustCompile(`\$`+regexp.QuoteMeta(name)+`\b`).ReplaceAllLiteralString(line, vars[name])
+	}
+	return line
 }
 
 // waitTask polls the unit API until the named task is completed (or, for

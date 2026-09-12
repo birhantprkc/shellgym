@@ -90,7 +90,7 @@ Units and modules are identified by their prefix-less folder names
 ```yaml
 title: Change into a directory
 labels: [ubuntu, debian]   # distro filter (os-release ID/ID_LIKE); empty = any
-requires: [systemd]        # host capability filter; unmet -> unit dropped
+requires: [systemd]        # host capability filter; unmet -> unit shown but never activated
 variant: scene=forest      # per-attempt draw: one value per key, other values hidden
 needs: [make-a-home]       # units (same module) whose *state* this unit builds on
 vars:
@@ -119,8 +119,12 @@ tasks:
   markdown as `${DIRNAME}`. `from:` references let dependent units share
   randomized state.
 - **Filtering**: `labels` matches the running distro; `requires` matches
-  detected host capabilities (currently `systemd`). Both filters apply at
-  load time.
+  detected host capabilities (currently `systemd`, `python3`, and
+  `readline` - the optional command line watcher behind `wait_line`,
+  which the daemon can only prove once its uprobe is installed, so the
+  marking is re-applied after startup via `Path.ApplyCaps`). Distro
+  filtering drops units at load time; unmet requirements keep them
+  browsable but unsupported.
 - **Variants**: `variant: key=value` tags a unit. The engine draws one
   value per key when the path is first served (`state.Data.Variants`,
   persisted, fresh per attempt) and marks units tagged with other values

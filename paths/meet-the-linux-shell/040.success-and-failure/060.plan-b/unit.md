@@ -1,11 +1,18 @@
 ---
 title: Plan B
+requires: [readline]
 vars:
   BOGUS: { pick: [carrots, downhill, moonwalk] }
 tasks:
   fallback:
     timeout: 45
     check: |
+      LINE=$(wait_line --latest "^date +--${BOGUS} *(&&|;|\|\|) *whoami$") || exit 1
+      case "$LINE" in
+        *'||'*) ;;
+        *';'*) hint_exit "A semicolon prints the user name whether date failed or not. The assignment wants the operator that runs the fallback only on failure." ;;
+        *) hint_exit "With && the fallback runs only when date succeeds, and this date is doomed. The assignment wants the operator that runs it on failure." ;;
+      esac
       wait_exec "(^|/)date --${BOGUS}\$"
       wait_exec '(^|/)whoami$'
     hint: |

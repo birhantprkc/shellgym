@@ -110,7 +110,8 @@ Rules and behaviors:
 - **Filters** apply at load time; filtered-out units do not exist for
   that host. `labels` matches `ID`/`ID_LIKE` from `/etc/os-release`
   (`ubuntu`, `debian`, `rocky`, ...); `requires` matches detected
-  capabilities (currently: `systemd`).
+  capabilities (currently: `systemd`, `python3`, `readline`). A unit with
+  an unmet requirement is shown but never activated.
 - **Variants** swap whole units where vars only vary details:
   `variant: <key>=<value>` tags a unit (key/value: lowercase letters,
   digits, dashes). When the path is first served, one value per key is
@@ -144,14 +145,17 @@ Rules and behaviors:
   comments are skipped. Every task needs one, or the unit cannot be
   acceptance-tested. In student-facing deployments (`serve --live`)
   solve blocks are stripped from the on-disk files.
-  Lines starting with `#!` are **directives** for interactions a plain
-  typed line cannot express - signal keys, pager keystrokes, and
-  commands that hold the foreground (a normal solve line chains a sync
-  marker onto the command and waits for it, so it would block forever
-  behind `sleep 300` or an open pager):
-  - `#!type TEXT` - write TEXT to the pty verbatim, no Enter (shell
-    variables like `$VAR` still expand when the shell runs the line,
-    since unit vars are exported into the solve shell);
+  Every solve line is typed exactly as written, except that references
+  to the unit's vars (`$NAME`, `${NAME}`) are replaced by their values
+  first - a student types the literal value, and `wait_line` checks see
+  the line as typed. Other `$` syntax is left to bash (the vars are also
+  exported into the solve shell). Lines starting with `#!` are
+  **directives** for interactions a plain typed line cannot express -
+  signal keys, pager keystrokes, and commands that hold the foreground
+  (a normal solve line waits for the shell's next prompt, so it would
+  block forever behind `sleep 300` or an open pager):
+  - `#!type TEXT` - write TEXT to the pty verbatim, no Enter (unit vars
+    are substituted as in a normal line);
   - `#!keys K K...` - send named keys: `enter`, `tab`, `space`, `esc`,
     `C-c`/`C-z`/any `C-<letter>`, or a single literal character
     (`q`, `/`);
@@ -192,7 +196,21 @@ Rules and behaviors:
   EXTERNAL commands - builtins (`echo`, `printf`, `true`, `false`,
   `pwd`, `type`, `cd`, ...) produce no exec event and are invisible to
   `wait_exec`; anchor such reps on an external command (`whoami`,
-  `date`, `seq`, `/bin/echo`, ...) or on an effect
+  `date`, `seq`, `/bin/echo`, ...) or on an effect - or observe the
+  typed line itself with `wait_line`. Exec events also carry no trace of
+  the shell line: `a; b` and `a && b` are identical to `wait_exec`
+- `wait_line [--latest] <regex>` - the student typed a command line
+  matching regex (the line as bash's readline returned it, surrounding
+  whitespace trimmed, otherwise verbatim: operators, quotes, pipes, and
+  builtins included). Same scoping and buffering as `wait_exec`; prints
+  the matched line so a check can branch on it (`--latest` for
+  right/wrong branching, as above). Keep regexes permissive about
+  whitespace (`sleep 2&&hostname` is the same command) and pair with
+  `wait_exec` when the command must also have run. OPTIONAL CAPABILITY:
+  every unit using it MUST declare `requires: [readline]` - hosts without
+  the readline uprobe (no tracefs, non-bash login shell) mark such units
+  unsupported instead of running them; without the declaration the check
+  fails at once with exit code 2 there. Only bash is observed
 - `wait_env <NAME> [regex]` - a command was observed with the env var
   set; this is how exports are verified (ask the student to run any
   command after exporting)
@@ -250,9 +268,11 @@ check: |
 
 Choosing: verify **effects** (`wait_file`, `wait_port`, ...) over
 commands; reserve `wait_exec` for commands that leave no trace (`ls`,
-`cat`, `curl`). `wait_exec` proves the command was run, not that it
-succeeded. Never require one exact command form when several are
-correct - keep `wait_exec` regexes permissive.
+`cat`, `curl`) and `wait_line` for reps where the shape of the line is
+the skill (`&&` vs `;`, a pipe, quoting, a builtin). `wait_exec` proves
+the command was run, not that it succeeded. Never require one exact
+command form when several are correct - keep `wait_exec` and
+`wait_line` regexes permissive.
 
 All scripts (`init:`, `check:`, `hint:`) run as root under
 `bash -o pipefail`, each in its own session (no controlling tty - the

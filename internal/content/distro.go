@@ -30,7 +30,9 @@ func DetectDistro() (id string, like []string) {
 // DetectCaps returns host capability tags used by unit `requires:` filters.
 // Currently detected: "systemd" - a reachable system systemd instance
 // (absent when there is no reachable systemd instance); "python3" - a
-// python3 interpreter on PATH.
+// python3 interpreter on PATH. The "readline" capability (command line
+// watching) is added by the daemon once its line watcher has started -
+// see Path.ApplyCaps.
 func DetectCaps() []string {
 	var caps []string
 	out, err := exec.Command("systemctl", "is-system-running").Output()

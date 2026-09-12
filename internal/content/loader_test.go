@@ -460,3 +460,32 @@ func TestVariantDependencyRules(t *testing.T) {
 		}
 	}
 }
+
+// The daemon learns some capabilities only after loading (the readline
+// watcher must actually start), so the marking is redoable: ApplyCaps
+// with more caps lifts Unsupported, including the cascaded flags.
+func TestApplyCapsReapplies(t *testing.T) {
+	gated := strings.Replace(minimalUnit, "title: A unit", "title: A unit\nrequires: [readline]", 1)
+	dependent := strings.Replace(minimalUnit, "title: A unit", "title: A unit\nneeds: [gated]", 1)
+	dir := scaffold(t, map[string]string{
+		"010.m/010.gated/unit.md":     gated,
+		"010.m/020.dependent/unit.md": dependent,
+	})
+	p, err := Load(dir, "ubuntu", nil, []string{"systemd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Unit("m/gated").Unsupported || !p.Unit("m/dependent").Unsupported {
+		t.Fatal("units requiring readline should start out unsupported")
+	}
+	p.ApplyCaps([]string{"systemd", "readline"})
+	for _, u := range p.Modules[0].Units {
+		if u.Unsupported || len(u.MissingCaps) != 0 {
+			t.Errorf("unit %s still unsupported after readline became available: %v", u.ID, u.MissingCaps)
+		}
+	}
+	p.ApplyCaps(nil)
+	if !p.Unit("m/dependent").Unsupported {
+		t.Fatal("cascade not re-applied when caps are withdrawn")
+	}
+}

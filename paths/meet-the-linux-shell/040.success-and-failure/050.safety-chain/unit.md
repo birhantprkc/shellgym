@@ -1,11 +1,18 @@
 ---
 title: Only if it worked
+requires: [readline]
 vars:
   PAUSE: { pick: ["2", "3"] }
 tasks:
   chained:
     timeout: 45
     check: |
+      LINE=$(wait_line --latest "^sleep +${PAUSE}s? *(&&|;|\|\|) *hostname$") || exit 1
+      case "$LINE" in
+        *'&&'*) ;;
+        *';'*) hint_exit "Both commands ran, but a semicolon prints the machine name no matter how the pause ended. The assignment wants the operator that waits for success." ;;
+        *) hint_exit "With || the machine name appears only when the pause fails. The assignment wants the operator that waits for success." ;;
+      esac
       wait_exec "(^|/)sleep ${PAUSE}s?\$"
       wait_exec '(^|/)hostname$'
     hint: |

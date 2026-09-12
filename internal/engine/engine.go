@@ -38,6 +38,9 @@ type Options struct {
 	LevelTimeout  time.Duration // per-poll timeout for level tasks
 	HintInterval  time.Duration // min gap between dynamic hint refreshes
 	RestartDelay  time.Duration // delay before restarting a failed edge attempt
+	// Lines is the optional command-line watcher (readline uprobe). Nil
+	// or inactive means the wait_line check is unavailable on this host.
+	Lines *LineWatcher
 }
 
 func (o *Options) defaults() {
@@ -99,16 +102,18 @@ type Engine struct {
 	Store   *state.Store
 	Bus     *bus.Bus
 	Watcher *ExecWatcher
+	Lines   *LineWatcher
 	Opts    Options
 
 	runner *scriptRunner
 
-	mu         sync.Mutex
-	activeUnit string
-	cancel     context.CancelFunc
-	statuses   map[string]string // task name -> status (active unit only)
-	sinceSeq   uint64
-	wg         sync.WaitGroup
+	mu           sync.Mutex
+	activeUnit   string
+	cancel       context.CancelFunc
+	statuses     map[string]string // task name -> status (active unit only)
+	sinceExecSeq uint64
+	sinceLineSeq uint64
+	wg           sync.WaitGroup
 
 	homeOnce sync.Once
 	homeDir  string
@@ -121,6 +126,7 @@ func New(p *content.Path, st *state.Store, b *bus.Bus, w *ExecWatcher, opts Opti
 		Store:   st,
 		Bus:     b,
 		Watcher: w,
+		Lines:   opts.Lines,
 		Opts:    opts,
 		runner:  &scriptRunner{checksDir: opts.ChecksDir, sockPath: opts.SockPath},
 	}
@@ -341,9 +347,13 @@ func (e *Engine) ActivateUnit(id string) error {
 	}
 
 	e.mu.Lock()
-	e.sinceSeq = 0
+	e.sinceExecSeq = 0
 	if e.Watcher != nil {
-		e.sinceSeq = e.Watcher.Seq()
+		e.sinceExecSeq = e.Watcher.Seq()
+	}
+	e.sinceLineSeq = 0
+	if e.Lines != nil {
+		e.sinceLineSeq = e.Lines.Seq()
 	}
 	for _, t := range u.Tasks {
 		if taskStatuses[t.Name] == StatusCompleted {
@@ -535,12 +545,14 @@ func (e *Engine) publishTask(unit, task, status string) {
 // seen: vars of the units this unit `needs:` first, then the unit's own
 // vars (the activation-time snapshot, refreshed from the store).
 func (e *Engine) taskEnv(u *content.Unit, taskName string, vars map[string]string) map[string]string {
+	sinceExecSeq, sinceLineSeq := e.currentSince()
 	env := map[string]string{
-		"GYM_UNIT":      u.ID,
-		"GYM_TASK":      taskName,
-		"GYM_USER":      e.Path.ShellUser,
-		"GYM_USER_HOME": e.userHome(),
-		"GYM_SINCE_SEQ": fmt.Sprintf("%d", e.currentSinceSeq()),
+		"GYM_UNIT":           u.ID,
+		"GYM_TASK":           taskName,
+		"GYM_USER":           e.Path.ShellUser,
+		"GYM_USER_HOME":      e.userHome(),
+		"GYM_SINCE_EXEC_SEQ": fmt.Sprintf("%d", sinceExecSeq),
+		"GYM_SINCE_LINE_SEQ": fmt.Sprintf("%d", sinceLineSeq),
 	}
 	e.Store.View(func(d *state.Data) {
 		for _, need := range u.Front.Needs {
@@ -602,10 +614,12 @@ func (e *Engine) userHome() string {
 	return e.homeDir
 }
 
-func (e *Engine) currentSinceSeq() uint64 {
+// currentSince returns the active unit's activation horizons: the exec
+// and line event sequence numbers snapshotted when it was activated.
+func (e *Engine) currentSince() (execSeq, lineSeq uint64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.sinceSeq
+	return e.sinceExecSeq, e.sinceLineSeq
 }
 
 // runInit executes init tasks sequentially. Returns false if any failed.

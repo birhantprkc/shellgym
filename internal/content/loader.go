@@ -15,7 +15,8 @@ import (
 // distroLike lists ID_LIKE values ("debian" for ubuntu, etc.). caps lists
 // host capabilities (e.g. "systemd"); units with unmet `requires:` - and
 // units that build on them via needs:/from: - are kept but marked
-// Unsupported.
+// Unsupported (see ApplyCaps to redo that marking once more capabilities
+// are known).
 func Load(dir string, distro string, distroLike []string, caps []string) (*Path, error) {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -45,7 +46,7 @@ func Load(dir string, distro string, distroLike []string, caps []string) (*Path,
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		mod, err := loadModule(filepath.Join(dir, e.Name()), e.Name(), distro, distroLike, caps)
+		mod, err := loadModule(filepath.Join(dir, e.Name()), e.Name(), distro, distroLike)
 		if err != nil {
 			return nil, err
 		}
@@ -54,6 +55,7 @@ func Load(dir string, distro string, distroLike []string, caps []string) (*Path,
 		}
 	}
 	sort.Slice(p.Modules, func(i, j int) bool { return p.Modules[i].Order < p.Modules[j].Order })
+	p.ApplyCaps(caps)
 
 	if err := validate(p); err != nil {
 		return nil, err
@@ -61,7 +63,22 @@ func Load(dir string, distro string, distroLike []string, caps []string) (*Path,
 	return p, nil
 }
 
-func loadModule(dir, folder, distro string, distroLike []string, caps []string) (*Module, error) {
+// ApplyCaps (re)marks units against the host capabilities: a unit with
+// unmet `requires:` gets MissingCaps and Unsupported, and the flag cascades
+// to units that build on it via needs:/from:. Load calls it with the caps
+// it was given; the daemon calls it again once capabilities that only its
+// own startup can prove (the readline watcher) are known.
+func (p *Path) ApplyCaps(caps []string) {
+	for _, mod := range p.Modules {
+		for _, u := range mod.Units {
+			u.MissingCaps = missingCaps(u.Front.Requires, caps)
+			u.Unsupported = len(u.MissingCaps) > 0
+		}
+		markUnsupportedDependents(mod)
+	}
+}
+
+func loadModule(dir, folder, distro string, distroLike []string) (*Module, error) {
 	order, name, err := splitPrefix(folder)
 	if err != nil {
 		return nil, fmt.Errorf("module %s: %w", folder, err)
@@ -90,12 +107,9 @@ func loadModule(dir, folder, distro string, distroLike []string, caps []string) 
 		if !distroMatch(u.Front.Labels, distro, distroLike) {
 			continue
 		}
-		u.MissingCaps = missingCaps(u.Front.Requires, caps)
-		u.Unsupported = len(u.MissingCaps) > 0
 		mod.Units = append(mod.Units, u)
 	}
 	sort.Slice(mod.Units, func(i, j int) bool { return mod.Units[i].Order < mod.Units[j].Order })
-	markUnsupportedDependents(mod)
 	return mod, nil
 }
 

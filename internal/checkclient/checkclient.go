@@ -26,7 +26,7 @@ import (
 // Names lists every check command (used to generate PATH shims).
 var Names = []string{
 	"shell_cwd", "shells", "hint_exit", "set_var",
-	"wait_cwd", "wait_exec", "wait_env",
+	"wait_cwd", "wait_exec", "wait_env", "wait_line",
 	"wait_file", "wait_file_gone", "wait_file_contains",
 	"wait_file_mode", "wait_file_newer", "wait_dir",
 	"wait_proc", "wait_proc_gone", "wait_proc_state",
@@ -51,13 +51,13 @@ func Main(name string, args []string) int {
 	timeout := fs.Float64("timeout", 0, "give up after this many seconds (0 = wait forever)")
 	now := fs.Bool("now", false, "single instant check, no waiting")
 	argc := fs.Int("argc", 0, "wait_exec only: also require exactly this many argv elements")
-	latest := fs.Bool("latest", false, "wait_exec only: prefer the newest buffered matching command over the oldest")
+	latest := fs.Bool("latest", false, "wait_exec/wait_line only: prefer the newest buffered match over the oldest")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	args = fs.Args()
 
-	c := &client{sock: os.Getenv("GYM_SOCK"), since: sinceSeq(), argc: *argc, latest: *latest}
+	c := &client{sock: os.Getenv("GYM_SOCK"), since: sinceExecSeq(), sinceLine: sinceLineSeq(), argc: *argc, latest: *latest}
 	deadline := time.Now().Add(365 * 24 * time.Hour)
 	if *timeout > 0 {
 		deadline = time.Now().Add(time.Duration(*timeout * float64(time.Second)))
@@ -77,16 +77,22 @@ func Main(name string, args []string) int {
 	return 0
 }
 
-func sinceSeq() uint64 {
-	v, _ := strconv.ParseUint(os.Getenv("GYM_SINCE_SEQ"), 10, 64)
+func sinceExecSeq() uint64 {
+	v, _ := strconv.ParseUint(os.Getenv("GYM_SINCE_EXEC_SEQ"), 10, 64)
+	return v
+}
+
+func sinceLineSeq() uint64 {
+	v, _ := strconv.ParseUint(os.Getenv("GYM_SINCE_LINE_SEQ"), 10, 64)
 	return v
 }
 
 type client struct {
-	sock   string
-	since  uint64
-	argc   int
-	latest bool
+	sock      string
+	since     uint64 // exec event horizon (GYM_SINCE_EXEC_SEQ)
+	sinceLine uint64 // line event horizon (GYM_SINCE_LINE_SEQ)
+	argc      int
+	latest    bool
 }
 
 func (c *client) http() *http.Client {
@@ -179,6 +185,11 @@ func (c *client) run(name string, args []string, deadline time.Time) (bool, erro
 		}
 		req := execWaitRequest{Regex: args[0], Argc: c.argc, Latest: c.latest}
 		return c.execWait(req, oneShot, deadline, true)
+	case "wait_line":
+		if len(args) != 1 {
+			return false, fmt.Errorf("usage: wait_line [--latest] <regex>")
+		}
+		return c.lineWait(args[0], oneShot, deadline)
 	case "wait_env":
 		if len(args) < 1 || len(args) > 2 {
 			return false, fmt.Errorf("usage: wait_env <NAME> [regex]")
@@ -611,6 +622,52 @@ func (c *client) execWait(req execWaitRequest, oneShot bool, deadline time.Time,
 	}
 	if out.Matched && echoArgv {
 		fmt.Println(strings.Join(out.Event.Argv, " "))
+	}
+	return out.Matched, nil
+}
+
+type lineWaitRequest struct {
+	After      uint64  `json:"after"`
+	Regex      string  `json:"regex"`
+	Latest     bool    `json:"latest"`
+	TimeoutSec float64 `json:"timeoutSec"`
+}
+
+type lineWaitResponse struct {
+	Matched bool `json:"matched"`
+	Event   struct {
+		Line string `json:"line"`
+	} `json:"event"`
+}
+
+// lineWait blocks on the daemon's /line/wait and prints the matched
+// command line on success, so a check can branch on WHAT was typed.
+func (c *client) lineWait(regex string, oneShot bool, deadline time.Time) (bool, error) {
+	if c.sock == "" {
+		return false, fmt.Errorf("GYM_SOCK not set (check must run inside a task script)")
+	}
+	req := lineWaitRequest{After: c.sinceLine, Regex: regex, Latest: c.latest}
+	if oneShot {
+		req.TimeoutSec = 0.05
+	} else {
+		req.TimeoutSec = time.Until(deadline).Seconds()
+	}
+	body, _ := json.Marshal(req)
+	resp, err := c.http().Post("http://gym/line/wait", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return false, fmt.Errorf("daemon returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	var out lineWaitResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, err
+	}
+	if out.Matched {
+		fmt.Println(out.Event.Line)
 	}
 	return out.Matched, nil
 }

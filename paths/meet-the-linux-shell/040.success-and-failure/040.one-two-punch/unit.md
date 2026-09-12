@@ -1,9 +1,20 @@
 ---
 title: Three commands on one line
+requires: [readline]
 tasks:
   rollcall:
     timeout: 45
     check: |
+      LINE=$(wait_line --latest '^[a-z]+ *(;|&&|\|\|) *[a-z]+ *(;|&&|\|\|) *[a-z]+$') || exit 1
+      case "$LINE" in
+        *'&&'*|*'||'*) hint_exit "Three commands ran from one line, but this rep is about the semicolon, which runs the next command no matter what happened before." ;;
+      esac
+      for cmd in whoami hostname tty; do
+        case "$LINE" in
+          *"$cmd"*) ;;
+          *) hint_exit "The line has three commands, but $cmd is missing from it." ;;
+        esac
+      done
       wait_exec '(^|/)whoami$'
       wait_exec '(^|/)hostname$'
       wait_exec '(^|/)tty$'

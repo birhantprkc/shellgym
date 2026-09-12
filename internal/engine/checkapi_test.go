@@ -170,3 +170,72 @@ func TestUnitsWatchStreamsSnapshotThenUpdates(t *testing.T) {
 		// drain until the cancelled context closes the body
 	}
 }
+
+func lineWaitOnce(t *testing.T, api *checkAPI, req LineWaitRequest) (LineWaitResponse, int) {
+	t.Helper()
+	body, _ := json.Marshal(req)
+	r := httptest.NewRequest("POST", "http://gym/line/wait", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	api.handleLineWait(w, r)
+	var out LineWaitResponse
+	if w.Code == 200 {
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out, w.Code
+}
+
+// wait_line judges the typed line itself, so `sleep 2; hostname` and
+// `sleep 2 && hostname` - identical as exec events - are told apart; the
+// usual student-activity scoping (uid, tty, horizon) applies.
+func TestLineWaitMatchesTypedOperator(t *testing.T) {
+	w := NewLineWatcher()
+	w.Source = "uprobe"
+	api := &checkAPI{lines: w, shellUID: 1000}
+
+	w.publish(LineEvent{PID: 1, UID: 1000, TTYNr: 3, Line: "sleep 2; hostname"})
+	req := LineWaitRequest{Regex: `^sleep 2 && hostname$`, TimeoutSec: 0.05}
+	if out, _ := lineWaitOnce(t, api, req); out.Matched {
+		t.Fatal("`;` line matched the && regex")
+	}
+	w.publish(LineEvent{PID: 1, UID: 1000, TTYNr: 3, Line: "  sleep 2 && hostname  "})
+	out, code := lineWaitOnce(t, api, req)
+	if code != 200 || !out.Matched || out.Event.Line != "  sleep 2 && hostname  " {
+		t.Fatalf("&& line not matched: code=%d %+v", code, out)
+	}
+
+	// Foreign uid and tty-less shells never count; the horizon hides
+	// lines typed before the unit was activated.
+	w.publish(LineEvent{PID: 2, UID: 0, TTYNr: 3, Line: "whoami"})
+	w.publish(LineEvent{PID: 3, UID: 1000, TTYNr: 0, Line: "whoami"})
+	if out, _ := lineWaitOnce(t, api, LineWaitRequest{Regex: `^whoami$`, TimeoutSec: 0.05}); out.Matched {
+		t.Fatal("foreign-uid or tty-less line matched")
+	}
+	horizon := w.Seq()
+	if out, _ := lineWaitOnce(t, api, LineWaitRequest{After: horizon, Regex: `hostname`, TimeoutSec: 0.05}); out.Matched {
+		t.Fatal("line before the horizon matched")
+	}
+
+	// --latest prefers the newest match (right/wrong branching).
+	w.publish(LineEvent{PID: 1, UID: 1000, TTYNr: 3, Line: "date --bogus; whoami"})
+	w.publish(LineEvent{PID: 1, UID: 1000, TTYNr: 3, Line: "date --bogus || whoami"})
+	out, _ = lineWaitOnce(t, api, LineWaitRequest{After: horizon, Regex: `^date --bogus ?(;|\|\|) whoami$`, TimeoutSec: 0.05})
+	if !out.Matched || out.Event.Line != "date --bogus; whoami" {
+		t.Fatalf("oldest-first: %+v", out)
+	}
+	out, _ = lineWaitOnce(t, api, LineWaitRequest{After: horizon, Regex: `^date --bogus ?(;|\|\|) whoami$`, Latest: true, TimeoutSec: 0.05})
+	if !out.Matched || out.Event.Line != "date --bogus || whoami" {
+		t.Fatalf("--latest: %+v", out)
+	}
+}
+
+// Without the readline capability the endpoint refuses instead of hanging,
+// so a wait_line in a unit that forgot `requires: [readline]` fails fast.
+func TestLineWaitUnavailable(t *testing.T) {
+	for _, api := range []*checkAPI{{shellUID: 1000}, {lines: NewLineWatcher(), shellUID: 1000}} {
+		if _, code := lineWaitOnce(t, api, LineWaitRequest{Regex: `x`, TimeoutSec: 0.05}); code != 501 {
+			t.Fatalf("want 501 without an active line watcher, got %d", code)
+		}
+	}
+}

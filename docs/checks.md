@@ -25,8 +25,9 @@ talks to the daemon over its unix socket (see
 - **Environment**: the engine exports the unit's vars (including task
   vars published with `set_var`, and the vars of every unit listed in
   the unit's `needs:`) plus `GYM_UNIT`, `GYM_TASK`, `GYM_USER` (the
-  observed login user), `GYM_USER_HOME`, `GYM_SINCE_SEQ` (exec-event
-  horizon, see `wait_exec`), and `GYM_SOCK` (the daemon socket path)
+  observed login user), `GYM_USER_HOME`, `GYM_SINCE_EXEC_SEQ` (exec-event
+  horizon, see `wait_exec`), `GYM_SINCE_LINE_SEQ` (command-line horizon,
+  see `wait_line`), and `GYM_SOCK` (the daemon socket path)
   into every script. `hint:` scripts additionally get
   `GYM_TASK_EXIT`, `GYM_TASK_STDOUT`, `GYM_TASK_STDERR` from the last
   failed check run (streams clipped to 1 KiB).
@@ -125,7 +126,10 @@ check: |
 Match on argv text, not on outcomes: `wait_exec` proves the command was
 *run*, not that it succeeded. When the effect matters, verify the effect
 (`wait_file`, `wait_port`, ...) and use `wait_exec` for commands that
-leave no trace (`ls`, `cat`, `ps`, `curl`).
+leave no trace (`ls`, `cat`, `ps`, `curl`). Exec events carry no trace of
+the shell line that produced them: `sleep 2; hostname` and
+`sleep 2 && hostname` look identical here - see `wait_line` when the line
+itself is the point of the rep.
 
 `--argc N` additionally requires the argv to have exactly N elements.
 The space-joined argv cannot tell a quoted argument containing spaces
@@ -174,6 +178,51 @@ check: |
 The same student-activity scoping as `wait_exec` applies. Environments
 are captured at exec time (bounded at 32 KiB), so even fast commands
 are inspected reliably.
+
+### `wait_line [--latest] <regex>`
+
+Waits until the student **types a command line** matching the regex - the
+line as bash's readline returned it, before the shell parsed it
+(surrounding whitespace trimmed, everything else verbatim). This is the
+only check that sees the shell's own syntax: the operator between two
+commands (`&&`, `||`, `;`, `|`), quoting, redirections, and builtins
+(`cd`, `type`, `export`, `echo`) that never exec anything. On success it
+prints the matched line, so a check can branch on what was typed:
+
+```yaml
+requires: [readline]
+tasks:
+  chained:
+    check: |
+      LINE=$(wait_line --latest '^sleep +2 *(&&|;|\|\|) *hostname$') || exit 1
+      case "$LINE" in
+        *'&&'*) ;;
+        *) hint_exit "The line ran, but the operator is not && - hostname would run even if sleep failed." ;;
+      esac
+      wait_exec '(^|/)hostname$'
+```
+
+The same student-activity scoping as `wait_exec` applies: only lines read
+after the unit's activation, only by tty-attached shells of the observed
+user, buffered across check restarts, and `--latest` prefers the newest
+buffered match. Lines are captured **as typed**, so keep regexes
+permissive about whitespace (`sleep 2&&hostname` is the same command)
+and combine with `wait_exec` when the command must also have run.
+
+This check is an **optional host capability**: it needs a kernel with
+uprobe events, tracefs, and a bash that exposes its readline symbol (see
+[detection.md](detection.md)). Every unit that uses `wait_line` must
+declare `requires: [readline]` - on a host without the capability such
+units are shown but never activated, and their checks stay off. A
+`wait_line` in a unit without the declaration fails immediately with
+exit code 2 on such a host.
+
+**Important limitations**:
+
+- Only bash is observed: a student whose login shell is zsh or fish
+produces no line events.
+- Continuation lines (a trailing `\`, an open
+quote) arrive as separate events, one per physical line.
 
 ## Files
 
@@ -373,6 +422,7 @@ short delay, and the hint stays visible in the task box until replaced.
 |---|---|
 | the shell moved somewhere | `wait_cwd` |
 | a command was run (no lasting effect) | `wait_exec` |
+| how a command line was written (`&&` vs `;`, a pipe, a builtin) | `wait_line` + `requires: [readline]` |
 | a variable was exported | `wait_env` |
 | a file was created | `wait_file` |
 | a directory was created | `wait_dir` |

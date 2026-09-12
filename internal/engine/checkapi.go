@@ -18,6 +18,7 @@ import (
 
 type checkAPI struct {
 	watcher   *ExecWatcher
+	lines     *LineWatcher // nil or inactive: /line/* unavailable
 	shellUser string
 	shellUID  int
 	hintSink  HintSink
@@ -49,6 +50,7 @@ func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, eng *Engine
 	}
 	api := &checkAPI{
 		watcher:   watcher,
+		lines:     eng.Lines,
 		shellUser: shellUser,
 		shellUID:  uid,
 		hintSink:  eng.PublishHint,
@@ -62,6 +64,9 @@ func ServeCheckAPI(sockPath, shellUser string, watcher *ExecWatcher, eng *Engine
 	mux.HandleFunc("/exec/seq", api.handleSeq)
 	mux.HandleFunc("/exec/wait", api.handleExecWait)
 	mux.HandleFunc("/exec/snapshot", api.handleSnapshot)
+	mux.HandleFunc("/line/seq", api.handleLineSeq)
+	mux.HandleFunc("/line/wait", api.handleLineWait)
+	mux.HandleFunc("/line/snapshot", api.handleLineSnapshot)
 	mux.HandleFunc("/units/watch", api.handleUnitsWatch)
 	go func() { _ = http.Serve(ln, mux) }()
 	return nil
@@ -158,6 +163,84 @@ func (a *checkAPI) handleExecWait(w http.ResponseWriter, r *http.Request) {
 	}
 	ev, ok := wait(r.Context(), req.After, time.Now().Add(timeout), match)
 	writeJSON(w, ExecWaitResponse{Matched: ok, Event: ev})
+}
+
+// LineWaitRequest asks the daemon to block until an interactive shell of
+// the observed user reads a command line matching the regex.
+type LineWaitRequest struct {
+	After      uint64  `json:"after"`      // only events with Seq > After
+	Regex      string  `json:"regex"`      // matched against the typed line (surrounding whitespace trimmed)
+	Latest     bool    `json:"latest"`     // prefer the newest buffered match over the oldest
+	TimeoutSec float64 `json:"timeoutSec"` // <=0: practically forever
+}
+
+type LineWaitResponse struct {
+	Matched bool      `json:"matched"`
+	Event   LineEvent `json:"event"`
+}
+
+// linesAvailable reports whether the readline watcher is active; when it
+// is not, the /line/* endpoints answer 501 so a wait_line in a unit that
+// forgot `requires: [readline]` fails loudly instead of hanging.
+func (a *checkAPI) linesAvailable(w http.ResponseWriter) bool {
+	if a.lines == nil || a.lines.Source == "" {
+		http.Error(w, "command line watching is unavailable on this host (the unit should declare requires: [readline])", 501)
+		return false
+	}
+	return true
+}
+
+func (a *checkAPI) handleLineSeq(w http.ResponseWriter, r *http.Request) {
+	if !a.linesAvailable(w) {
+		return
+	}
+	writeJSON(w, map[string]uint64{"seq": a.lines.Seq()})
+}
+
+func (a *checkAPI) handleLineSnapshot(w http.ResponseWriter, r *http.Request) {
+	if !a.linesAvailable(w) {
+		return
+	}
+	writeJSON(w, a.lines.Snapshot(0, 200))
+}
+
+func (a *checkAPI) handleLineWait(w http.ResponseWriter, r *http.Request) {
+	if !a.linesAvailable(w) {
+		return
+	}
+	var req LineWaitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	timeout := time.Duration(req.TimeoutSec * float64(time.Second))
+	if timeout <= 0 || timeout > time.Hour {
+		timeout = time.Hour
+	}
+	re, err := regexp.Compile(req.Regex)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	match := func(ev LineEvent) bool {
+		// Same student-activity scoping as exec events: only a CONFIRMED
+		// foreign uid or missing tty disqualifies. The daemon's own task
+		// scripts never call readline (non-interactive bash), so there is
+		// no self-match to guard against here anyway.
+		if ev.UID != -1 && ev.UID != a.shellUID {
+			return false
+		}
+		if ev.TTYNr == 0 {
+			return false
+		}
+		return re.MatchString(strings.TrimSpace(ev.Line))
+	}
+	wait := a.lines.WaitMatch
+	if req.Latest {
+		wait = a.lines.WaitMatchLatest
+	}
+	ev, ok := wait(r.Context(), req.After, time.Now().Add(timeout), match)
+	writeJSON(w, LineWaitResponse{Matched: ok, Event: ev})
 }
 
 // HintRequest is posted by the hint_exit built-in.

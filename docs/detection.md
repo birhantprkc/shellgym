@@ -2,9 +2,9 @@
 
 This page describes how Shell Gym observes the student without touching
 their shell. Everything the built-in checks (see [checks.md](checks.md))
-report is derived from four mechanisms: student shell discovery, exec
-watching, direct system-state polling, and the check API socket that
-glues them to task scripts.
+report is derived from five mechanisms: student shell discovery, exec
+watching, command line watching, direct system-state polling, and the
+check API socket that glues them to task scripts.
 
 The guiding constraint is **zero instrumentation**: no prompt hooks, no
 shell wrappers, no `PROMPT_COMMAND`, no pty interception. The student's
@@ -95,12 +95,14 @@ script's argv). Two design choices prevent self-matching:
 2. task scripts run as root, while the student is a non-root user - the
    uid filter rejects them independently.
 
-### The activation horizon (`GYM_SINCE_SEQ`)
+### The activation horizon (`GYM_SINCE_EXEC_SEQ`)
 
 When a unit activates, the engine snapshots the current event sequence
-number and exports it to every task script as `GYM_SINCE_SEQ`. Exec
+number and exports it to every task script as `GYM_SINCE_EXEC_SEQ`. Exec
 checks only consider events **newer** than this horizon, so a command
-the student ran before ever seeing the unit cannot satisfy it. Within
+the student ran before ever seeing the unit cannot satisfy it. (Command
+line watching keeps its own ring and its own horizon,
+`GYM_SINCE_LINE_SEQ`, exported the same way.) Within
 one unit attempt the horizon is fixed - a check that is restarted (for
 example after a `hint_exit`) still sees everything the student did since
 activation, so no command is lost between check restarts.
@@ -116,6 +118,70 @@ activation, so no command is lost between check restarts.
   faster.
 - Matching is textual, against argv. `wait_exec` proves a command was
   run, not that it succeeded - verify effects where effects exist.
+
+## Command line watching (readline uprobe)
+
+Used by: `wait_line` built-in. Optional - gates the `readline` capability.
+
+Exec events cannot tell `sleep 2; hostname` from `sleep 2 && hostname`:
+both fork the same two children with the same argv. The operator exists
+only inside the shell, in the line it parsed. Bash reads that line
+through `readline()`, and the daemon observes the call from the kernel
+side with a **uretprobe** (the technique behind bpftrace's
+`bashreadline`): a return probe on the symbol whose fetch argument
+copies the returned string into the trace buffer, registered through
+tracefs (`uprobe_events`) with no BPF program involved. The student's
+shell is still a stock process - the probe is a kernel breakpoint the
+process never notices.
+
+### Setup
+
+At start the daemon:
+
+1. resolves the observed user's login shell (`/etc/passwd`) and requires
+   it to be bash;
+2. finds the `readline` symbol - in the bash binary itself when readline
+   is linked statically (Debian, Ubuntu), otherwise in the `libreadline`
+   shared object bash loads (Fedora, Rocky) - and converts its virtual
+   address to a file offset via the ELF program headers;
+3. writes `r:shellgym/readline <binary>:0x<offset> line=+0($retval):string`
+   to `uprobe_events`, creates the private tracefs instance
+   `instances/shellgym` so other tracing users see none of it, enables
+   the event there, and streams `trace_pipe` from the instance;
+4. on every record, harvests the shell's uid and controlling tty from
+   `/proc/<pid>` (shells are long-lived, so this practically never
+   misses) and publishes the line into a ring buffer with the same
+   sequence-number semantics as exec events.
+
+A daemon that dies leaves the probe and the instance behind (they are
+kernel state); the next start removes them before registering afresh.
+`Close` disables and deletes the event and the instance.
+
+### Capability gating
+
+When any step fails - not root, no tracefs or `CONFIG_UPROBE_EVENTS`, a
+non-bash login shell, no readline symbol - the daemon logs the reason and
+runs without the watcher. Units that declare `requires: [readline]` are
+then marked unsupported (browsable, never activated, checks off), like
+any other unmet `requires:`. The `/line/*` endpoints answer `501` so a
+`wait_line` in a unit that forgot the declaration fails at once instead
+of hanging until its timeout.
+
+### What is (and is not) observed
+
+- Every line an interactive bash of the observed user reads: the text
+  as typed, before history expansion, alias expansion, or parsing.
+  Continuation lines are separate events. `wait_line` trims surrounding
+  whitespace and matches the rest verbatim.
+- Non-interactive bash (`bash -c`, scripts, the daemon's own task
+  runners) never calls readline, so there is nothing to filter out.
+  `shellgym solve` types into a real interactive bash and is observed
+  like a student - which is why the solve driver syncs through its own
+  `PROMPT_COMMAND` rather than appending anything to the typed line.
+- Other shells (zsh, fish, dash) produce no events; the login shell must
+  be bash for the capability to be detected at all.
+- The activation horizon is a separate sequence number
+  (`GYM_SINCE_LINE_SEQ`, alongside `GYM_SINCE_EXEC_SEQ` for exec events).
 
 ## Direct system-state polling (procfs and friends)
 
@@ -162,13 +228,15 @@ Checks that need daemon-side state talk to it over a unix socket
 | `/shells` | `shell_cwd`, `shells`, `wait_cwd` | current student-shell list |
 | `/exec/wait` | `wait_exec`, `wait_env` | block until a matching exec event |
 | `/exec/seq`, `/exec/snapshot` | debugging | event-stream introspection |
+| `/line/wait` | `wait_line` | block until a matching command line is read (`501` without the `readline` capability) |
+| `/line/seq`, `/line/snapshot` | debugging | line-stream introspection |
 | `/hint` | `hint_exit` | push a hint to the UI |
 | `/vars` | `set_var` | publish a task var on the current unit |
 | `/units/watch` | external observers | SSE stream of unit statuses: a full snapshot on connect, then one event per change |
 
-The socket path and the activation horizon reach the shims through the
-`GYM_SOCK` and `GYM_SINCE_SEQ` environment variables the engine sets for
-every script.
+The socket path and the activation horizons reach the shims through the
+`GYM_SOCK`, `GYM_SINCE_EXEC_SEQ` (exec events), and `GYM_SINCE_LINE_SEQ`
+(command lines) environment variables the engine sets for every script.
 
 `/units/watch` is a Server-Sent Events stream, not a check. It opens with a
 `snapshot` event (`{"path": "...", "units": {"<unit id>": "pending|active|

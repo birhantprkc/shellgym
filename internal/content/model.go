@@ -58,8 +58,9 @@ type Frontmatter struct {
 	Labels []string `yaml:"labels"`
 	Needs  []string `yaml:"needs"`
 	// Requires lists host capabilities the unit depends on (currently:
-	// "systemd", "python3"). Units whose requirements the runtime lacks
-	// are marked Unsupported at load time: still shown, never run.
+	// "systemd", "python3", and "readline"). Units
+	// whose requirements the runtime lacks are marked Unsupported: still
+	// shown, never run.
 	Requires []string `yaml:"requires"`
 	// Variant ("key=value") makes the unit part of a variant of the path:
 	// for every key one value is drawn per attempt, and units carrying

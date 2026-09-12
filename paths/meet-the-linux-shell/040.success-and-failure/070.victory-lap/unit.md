@@ -1,11 +1,17 @@
 ---
 title: Victory lap
+requires: [readline]
 vars:
   BOGUS: { pick: [teapot, polkadot, upside-down] }
 tasks:
   punctual:
     timeout: 45
     check: |
+      LINE=$(wait_line --latest '^sleep +2s? *(&&|;|\|\|) *date +(-u|--utc)$') || exit 1
+      case "$LINE" in
+        *'&&'*) ;;
+        *) hint_exit "Line one needs the operator that runs date only if the pause succeeded." ;;
+      esac
       wait_exec '(^|/)sleep 2s?$'
       wait_exec '(^|/)date (-u|--utc)$'
     hint: |
@@ -15,6 +21,11 @@ tasks:
   resilient:
     timeout: 45
     check: |
+      LINE=$(wait_line --latest "^date +--${BOGUS} *(&&|;|\|\|) *tty$") || exit 1
+      case "$LINE" in
+        *'||'*) ;;
+        *) hint_exit "Line two needs the operator that runs tty only when date failed." ;;
+      esac
       wait_exec "(^|/)date --${BOGUS}\$"
       wait_exec '(^|/)tty$'
     hint: |

@@ -1,15 +1,12 @@
 package engine
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -39,11 +36,7 @@ type ExecEvent struct {
 // (missing CONFIG_PROC_EVENTS or CAP_NET_ADMIN), exec watching is simply
 // disabled - exec-based checks (wait_exec, wait_env) then never fire.
 type ExecWatcher struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	ring   []ExecEvent
-	seq    uint64
-	closed bool
+	*eventRing[ExecEvent]
 
 	// Source is "netlink" when the connector is active, "" when exec
 	// watching is unavailable.
@@ -53,9 +46,9 @@ type ExecWatcher struct {
 const ringSize = 4096
 
 func NewExecWatcher() *ExecWatcher {
-	w := &ExecWatcher{}
-	w.cond = sync.NewCond(&w.mu)
-	return w
+	return &ExecWatcher{eventRing: newEventRing(ringSize,
+		func(ev ExecEvent) uint64 { return ev.Seq },
+		func(ev ExecEvent, seq uint64, t time.Time) ExecEvent { ev.Seq, ev.Time = seq, t; return ev })}
 }
 
 // Start begins watching via the kernel proc connector. It returns an error
@@ -71,112 +64,6 @@ func (w *ExecWatcher) Start() error {
 	w.Source = "netlink"
 	go w.netlinkLoop(sock)
 	return nil
-}
-
-func (w *ExecWatcher) Close() {
-	w.mu.Lock()
-	w.closed = true
-	w.cond.Broadcast()
-	w.mu.Unlock()
-}
-
-// Seq returns the current sequence number; events published after a given
-// point have Seq greater than this.
-func (w *ExecWatcher) Seq() uint64 {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.seq
-}
-
-// WaitMatch blocks until an event with Seq > after matches fn, returning it.
-// Among already-buffered events the OLDEST match wins. Returns false when
-// the deadline passes, ctx is canceled (e.g. the waiting check script was
-// killed and its API connection dropped - without this, every killed
-// attempt would leak a waiter that keeps scanning the ring on each
-// broadcast), or the watcher closes.
-func (w *ExecWatcher) WaitMatch(ctx context.Context, after uint64, deadline time.Time, fn func(ExecEvent) bool) (ExecEvent, bool) {
-	return w.waitMatch(ctx, after, deadline, fn, false)
-}
-
-// WaitMatchLatest is WaitMatch, except that among already-buffered events
-// the NEWEST match wins. A check that judges the student's most recent
-// answer (branching right/wrong and restarting after a hint) needs this:
-// with oldest-first matching, the first wrong answer since activation
-// would keep winning every restart and a later correct one could never be
-// seen.
-func (w *ExecWatcher) WaitMatchLatest(ctx context.Context, after uint64, deadline time.Time, fn func(ExecEvent) bool) (ExecEvent, bool) {
-	return w.waitMatch(ctx, after, deadline, fn, true)
-}
-
-func (w *ExecWatcher) waitMatch(ctx context.Context, after uint64, deadline time.Time, fn func(ExecEvent) bool, latest bool) (ExecEvent, bool) {
-	timer := time.AfterFunc(time.Until(deadline), func() {
-		w.mu.Lock()
-		w.cond.Broadcast()
-		w.mu.Unlock()
-	})
-	defer timer.Stop()
-	stop := context.AfterFunc(ctx, func() {
-		w.mu.Lock()
-		w.cond.Broadcast()
-		w.mu.Unlock()
-	})
-	defer stop()
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	scanned := after
-	for {
-		// The ring ascends by Seq - skip the already-scanned prefix instead
-		// of re-running fn over all 4096 entries on every wake-up.
-		i := sort.Search(len(w.ring), func(i int) bool { return w.ring[i].Seq > scanned })
-		if latest {
-			for j := len(w.ring) - 1; j >= i; j-- {
-				if fn(w.ring[j]) {
-					return w.ring[j], true
-				}
-			}
-		} else {
-			for _, ev := range w.ring[i:] {
-				if fn(ev) {
-					return ev, true
-				}
-			}
-		}
-		scanned = w.seq
-		if w.closed || ctx.Err() != nil || time.Now().After(deadline) {
-			return ExecEvent{}, false
-		}
-		w.cond.Wait()
-	}
-}
-
-// Snapshot returns events with Seq > after (for debugging APIs).
-func (w *ExecWatcher) Snapshot(after uint64, limit int) []ExecEvent {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	var out []ExecEvent
-	for _, ev := range w.ring {
-		if ev.Seq > after {
-			out = append(out, ev)
-		}
-	}
-	if limit > 0 && len(out) > limit {
-		out = out[len(out)-limit:]
-	}
-	return out
-}
-
-func (w *ExecWatcher) publish(ev ExecEvent) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.seq++
-	ev.Seq = w.seq
-	ev.Time = time.Now()
-	w.ring = append(w.ring, ev)
-	if len(w.ring) > ringSize {
-		w.ring = w.ring[len(w.ring)-ringSize:]
-	}
-	w.cond.Broadcast()
 }
 
 // --- netlink proc connector -------------------------------------------------
@@ -235,10 +122,7 @@ func (w *ExecWatcher) netlinkLoop(sock int) {
 	le := binary.LittleEndian
 	var lastOverflowLog time.Time
 	for {
-		w.mu.Lock()
-		closed := w.closed
-		w.mu.Unlock()
-		if closed {
+		if w.isClosed() {
 			return
 		}
 		n, _, err := unix.Recvfrom(sock, buf, 0)

@@ -136,3 +136,20 @@ func ShellEnvOf(pid int, name string) (string, bool) {
 	}
 	return "", false
 }
+
+// LoginShell returns the user's login shell from the passwd database
+// (the shell the platform's terminal starts for them), or /bin/bash when
+// the user cannot be resolved.
+func LoginShell(username string) string {
+	raw, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return "/bin/bash"
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) >= 7 && f[0] == username && f[6] != "" {
+			return f[6]
+		}
+	}
+	return "/bin/bash"
+}

@@ -22,12 +22,12 @@ import (
 
 func newServeCmd() *cobra.Command {
 	var (
-		pathDir string
-		addr       string
-		stateDir   string
-		runDir     string
-		shellUser  string
-		live       bool
+		pathDir   string
+		addr      string
+		stateDir  string
+		runDir    string
+		shellUser string
+		live      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -65,6 +65,19 @@ func serve(pathDir, addr, stateDir, runDir, shellUser string, live bool) error {
 	if shellUser != "" {
 		path.ShellUser = shellUser
 	}
+
+	// Command line watching (readline uprobe) is optional: when it cannot
+	// start, the daemon runs without it and units that require it are
+	// marked unsupported - browsable, never activated.
+	lines := engine.NewLineWatcher()
+	if err := lines.Start(engine.LoginShell(path.ShellUser)); err != nil {
+		log.Printf("line watcher: unavailable, units requiring readline are marked unsupported: %v", err)
+	} else {
+		defer lines.Close()
+		log.Printf("line watcher: uprobe on %s", lines.Target)
+		caps = append(caps, "readline")
+		path.ApplyCaps(caps)
+	}
 	log.Printf("loaded path %q: %d modules, distro=%s caps=%v", path.ID, len(path.Modules), distro, caps)
 
 	st, err := state.Open(stateDir, path.ID)
@@ -96,6 +109,7 @@ func serve(pathDir, addr, stateDir, runDir, shellUser string, live bool) error {
 	eng := engine.New(path, st, b, watcher, engine.Options{
 		ChecksDir: checksDir,
 		SockPath:  sockPath,
+		Lines:     lines,
 	})
 
 	if err := engine.ServeCheckAPI(sockPath, path.ShellUser, watcher, eng); err != nil {

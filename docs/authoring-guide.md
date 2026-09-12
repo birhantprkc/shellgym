@@ -132,7 +132,11 @@ for that host.
   distro-specific material, ideally providing a sibling unit per family
   (see `sample-linux-101/070.package-tools` for the pattern).
 - `requires` matches detected host capabilities. Currently detected:
-  `systemd` (a reachable system systemd instance).
+  `systemd` (a reachable system systemd instance), `python3` (an
+  interpreter on PATH), and `readline` (the daemon can observe the
+  command lines the student types - required by every unit that uses
+  the `wait_line` check). Units with an unmet requirement are shown but
+  never activated.
 
 ### Unit dependencies: `needs`
 
@@ -370,8 +374,10 @@ heading becomes the module title.
 - **One skill per rep.** Most reps should complete in under a minute;
   if a unit needs three tasks and a page of prose, split it.
 - **Verify effects, not keystrokes,** where an effect exists; reserve
-  `wait_exec` for commands that leave no trace. Never require one exact
-  command form when several are correct.
+  `wait_exec` for commands that leave no trace, and `wait_line` (with
+  `requires: [readline]`) for reps where the shape of the line itself is
+  the skill - an operator, a pipe, quoting, a builtin. Never require one
+  exact command form when several are correct.
 - **Never put the exact solution in the problem statement.** Hints may
   point, not paste.
 - **Prefer distro-neutral commands**; label distro-specific units.
@@ -408,8 +414,9 @@ does not render.
 
 `solve` is the real test: it spawns an interactive bash on a pty
 (indistinguishable from a student to the daemon), activates each unit
-through the API, types the solve lines, and waits for completion. It
-reports PASS/FAIL per unit. Units hidden by the variant draw are solved
+through the API, types the solve lines with the unit's vars substituted,
+and waits for the shell's next prompt after each line. It reports
+PASS/FAIL per unit. Units hidden by the variant draw are solved
 too (marked `[key=value, hidden]`), so one run covers every variant.
 
 When a unit fails, look at the recorded check runs - every attempt's
