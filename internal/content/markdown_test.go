@@ -68,33 +68,38 @@ func TestRenderHintComponent(t *testing.T) {
 	}
 }
 
-func TestRenderTipComponent(t *testing.T) {
+func TestRenderCalloutComponents(t *testing.T) {
 	html, err := RenderUnit("::tip{title=\"Tab completion\"}\nPress `Tab` to complete.\n::", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`class="tip-box"`,
-		`tip-title`,
+		`class="callout callout-tip"`,
+		`callout-title`,
 		`Tab completion`,
 		`<code>Tab</code>`,
-		`tip-icon`,
+		`callout-icon`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in tip html:\n%s", want, html)
 		}
 	}
-	// details/summary is the hint's shape; tips are always visible
+	// details/summary is the hint's shape; callouts are always visible
 	if strings.Contains(html, "<details") {
 		t.Errorf("tip must not fold: %s", html)
 	}
-	// title defaults to "Tip"
-	html, err = RenderUnit("::tip\nSomething useful.\n::", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(html, ">Tip</span>") {
-		t.Errorf("default title missing: %s", html)
+	// each kind gets its own modifier class and default title
+	for kind, title := range map[string]string{"tip": "Tip", "note": "Note", "warn": "Warning"} {
+		html, err = RenderUnit("::"+kind+"\nSomething useful.\n::", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, `class="callout callout-`+kind+`"`) {
+			t.Errorf("%s: modifier class missing: %s", kind, html)
+		}
+		if !strings.Contains(html, ">"+title+"</span>") {
+			t.Errorf("%s: default title missing: %s", kind, html)
+		}
 	}
 }
 

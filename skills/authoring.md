@@ -321,6 +321,10 @@ Directories are entered with a two-letter command.
   "Tip") - for terminal-interaction technique that checks cannot verify
   (Tab completion, `Ctrl-R`, arrow-key history, pager keys). Hints answer
   "I'm stuck"; tips teach the ergonomic way to do what the task asks.
+- `::note` and `::warn` share the tip's always-visible shape (optional
+  `title`, defaults "Note" / "Warning") in neutral and amber colors -
+  notes for context and asides, warnings for destructive or surprising
+  behavior. Keep them short and next to the task they concern.
 - `::image` and plain `![...](file.png)` serve unit-local files.
 - `${VAR}` interpolates in the body, titles, and component text.
 - Nested components use identical `::` fences.

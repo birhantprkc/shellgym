@@ -207,18 +207,8 @@ func renderComponent(c *Component, assetPrefix, defaultTask string) (string, err
 		return fmt.Sprintf(
 			`<details class="hint-box"><summary><span class="hint-title">%s</span>%s</summary><div class="hint-body">%s</div></details>`,
 			html.EscapeString(title), hintBulbSVG, inner), nil
-	case "tip":
-		title := c.Attrs["title"]
-		if title == "" {
-			title = "Tip"
-		}
-		inner, err := RenderMarkdown(c.Sections[""])
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf(
-			`<div class="tip-box"><div class="tip-head">%s<span class="tip-title">%s</span></div><div class="tip-body">%s</div></div>`,
-			tipBulbSVG, html.EscapeString(title), inner), nil
+	case "tip", "note", "warn":
+		return renderCallout(c)
 	case "image":
 		src := c.Attrs["src"]
 		if !strings.Contains(src, "://") && !strings.HasPrefix(src, "/") {
@@ -231,14 +221,48 @@ func renderComponent(c *Component, assetPrefix, defaultTask string) (string, err
 	}
 }
 
+// callouts are the always-visible boxes (::tip, ::note, ::warn) that sit
+// alongside tasks. They share one markup shape and stylesheet family and
+// differ only in default title, icon and color (via the callout-<kind>
+// modifier class).
+var callouts = map[string]struct {
+	title string
+	icon  string
+}{
+	"tip":  {"Tip", tipBulbSVG},
+	"note": {"Note", noteInfoSVG},
+	"warn": {"Warning", warnTriangleSVG},
+}
+
+func renderCallout(c *Component) (string, error) {
+	kind := callouts[c.Name]
+	title := c.Attrs["title"]
+	if title == "" {
+		title = kind.title
+	}
+	inner, err := RenderMarkdown(c.Sections[""])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(
+		`<div class="callout callout-%s"><div class="callout-head">%s<span class="callout-title">%s</span></div><div class="callout-body">%s</div></div>`,
+		c.Name, kind.icon, html.EscapeString(title), inner), nil
+}
+
+// tipBulbSVG is mdi:lightbulb-outline for ::tip callouts - technique notes
+// (keystrokes, tab completion, history tricks). Deliberately the
+// plain-outline cousin of the hint box's filled "lightbulb-on" bulb: same
+// family, calmer voice.
+const tipBulbSVG = `<svg class="callout-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12,2A7,7 0 0,1 19,9C19,11.38 17.81,13.47 16,14.74V17A1,1 0 0,1 15,18H9A1,1 0 0,1 8,17V14.74C6.19,13.47 5,11.38 5,9A7,7 0 0,1 12,2M9,21V20H15V21A1,1 0 0,1 14,22H10A1,1 0 0,1 9,21M12,4A5,5 0 0,0 7,9C7,11.05 8.23,12.81 10,13.58V16H14V13.58C15.77,12.81 17,11.05 17,9A5,5 0 0,0 12,4Z"/></svg>`
+
+// noteInfoSVG is mdi:information-outline for ::note callouts.
+const noteInfoSVG = `<svg class="callout-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>`
+
+// warnTriangleSVG is mdi:alert-outline for ::warn callouts.
+const warnTriangleSVG = `<svg class="callout-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16"/></svg>`
+
 // hintBulbSVG is mdi:lightbulb-on-40 - the lightbulb the labs platform
 // shows on hint boxes (rendered on the right edge of the summary row).
-// tipBulbSVG is mdi:lightbulb-outline for ::tip callouts - always-visible
-// technique notes (keystrokes, tab completion, history tricks) that sit
-// alongside tasks. Deliberately the plain-outline cousin of the hint box's
-// filled "lightbulb-on" bulb: same family, calmer voice.
-const tipBulbSVG = `<svg class="tip-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12,2A7,7 0 0,1 19,9C19,11.38 17.81,13.47 16,14.74V17A1,1 0 0,1 15,18H9A1,1 0 0,1 8,17V14.74C6.19,13.47 5,11.38 5,9A7,7 0 0,1 12,2M9,21V20H15V21A1,1 0 0,1 14,22H10A1,1 0 0,1 9,21M12,4A5,5 0 0,0 7,9C7,11.05 8.23,12.81 10,13.58V16H14V13.58C15.77,12.81 17,11.05 17,9A5,5 0 0,0 12,4Z"/></svg>`
-
 const hintBulbSVG = `<svg class="hint-bulb" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M1 11h3v2H1zM13 1h-2v3h2zM4.9 3.5L3.5 4.9L5.6 7L7 5.6zm14.2 0L17 5.6L18.4 7l2.1-2.1zM10 22c0 .6.4 1 1 1h2c.6 0 1-.4 1-1v-1h-4zm10-11v2h3v-2zm-2 1c0 2.2-1.2 4.2-3 5.2V19c0 .6-.4 1-1 1h-4c-.6 0-1-.4-1-1v-1.8c-1.8-1-3-3-3-5.2c0-3.3 2.7-6 6-6s6 2.7 6 6m-2 0c0-2.21-1.79-4-4-4s-4 1.79-4 4c0 .74.22 1.41.57 2h6.86c.35-.59.57-1.26.57-2"/></svg>`
 
 func renderTaskComponent(c *Component, defaultTask string) (string, error) {

@@ -339,6 +339,12 @@ Press `Tab` after a few letters of a path and the shell completes it.
   tips teach the ergonomic way to do what the task asks. Since tips are
   unmissable, keep them short and place them next to the task they help
   with.
+- `::note` and `::warn` are the same always-visible shape as `::tip`
+  (optional `title`, defaults "Note" and "Warning") in neutral and amber
+  colors. A note carries context that is neither technique nor a nudge
+  (an aside, a definition, "on other systems this differs"); a warning
+  flags something destructive or surprising ("this deletes without
+  asking"). Same rule as tips: short, and next to the task they concern.
 - `::image` and plain `![...](file.png)` serve unit-local files.
 - `${VAR}` interpolates everywhere: body, titles, component text.
 - Nested components use identical `::` fences.

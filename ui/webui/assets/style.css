@@ -37,6 +37,9 @@
   --tip-soft: #f5f3ff;                 /* violet-50 */
   --tip-line: #ddd6fe;                 /* violet-200 */
   --tip-ink: #6d28d9;                  /* violet-700 */
+  --note-soft: #f8fafc;                /* slate-50 */
+  --note-line: #cbd5e1;                /* slate-300 */
+  --note-ink: #475569;                 /* slate-600 */
   --hint-bg: #edf6fc;                  /* HintBox: labs frost-light */
   --hint-line: color-mix(in srgb, #45aeee 40%, transparent);
   --hint-ink: #4078c0;
@@ -85,6 +88,9 @@
   --tip-soft: rgba(167, 139, 250, .08);
   --tip-line: rgba(167, 139, 250, .30);
   --tip-ink: #a78bfa;                  /* violet-400 */
+  --note-soft: rgba(148, 163, 184, .08);
+  --note-line: rgba(148, 163, 184, .30);
+  --note-ink: #94a3b8;                 /* slate-400 */
   --hint-bg: rgba(56, 189, 248, .08);
   --hint-line: rgba(56, 189, 248, .28);
   --hint-ink: #7dd3fc;
@@ -508,22 +514,27 @@ button { font: inherit; color: inherit; }
 }
 .hint-box .hint-body { padding: 10px 14px 12px; }
 
-/* ---------- tips ---------- */
-/* always-visible technique callout (keystrokes, completion, history);
-   violet family - distinct from the sky-blue task boxes */
-.tip-box {
-  border: 1px solid var(--tip-line); border-radius: 10px;
-  margin: 14px 0; background: var(--tip-soft);
+/* ---------- callouts: ::tip / ::note / ::warn ---------- */
+/* always-visible boxes that sit next to tasks; one shape, three palettes.
+   tip: violet (technique - keystrokes, completion, history), distinct from
+   the sky-blue task boxes; note: neutral slate (context, asides);
+   warn: amber (destructive or surprising behavior) */
+.callout {
+  --co-soft: var(--tip-soft); --co-line: var(--tip-line); --co-ink: var(--tip-ink);
+  border: 1px solid var(--co-line); border-radius: 10px;
+  margin: 14px 0; background: var(--co-soft);
 }
-.tip-head {
+.callout-note { --co-soft: var(--note-soft); --co-line: var(--note-line); --co-ink: var(--note-ink); }
+.callout-warn { --co-soft: var(--warn-soft); --co-line: var(--warn-line); --co-ink: var(--warn); }
+.callout-head {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px 0; font-weight: 600; font-size: 13px;
-  letter-spacing: .02em; color: var(--tip-ink);
+  letter-spacing: .02em; color: var(--co-ink);
 }
-.tip-icon { width: 18px; height: 18px; flex: 0 0 auto; }
-.tip-box .tip-body { padding: 6px 14px 10px; font-size: 14px; }
-.tip-box .tip-body p { margin: 6px 0; }
-.tip-box .tip-body code { background: color-mix(in srgb, var(--tip-ink) 10%, transparent); }
+.callout-icon { width: 18px; height: 18px; flex: 0 0 auto; }
+.callout .callout-body { padding: 6px 14px 10px; font-size: 14px; }
+.callout .callout-body p { margin: 6px 0; }
+.callout .callout-body code { background: color-mix(in srgb, var(--co-ink) 10%, transparent); }
 
 /* ---------- locked (future) unit preview ---------- */
 /* lock in the unit header, mirroring .title-check */
