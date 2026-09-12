@@ -28,9 +28,7 @@ Print a greeting using the standalone twin at `/bin/echo`.
 #active
 Waiting for a message printed by the standalone `/bin/echo`...
 #completed
-Both twins look identical from the outside, but this time a real
-separate program ran. The shell prefers its builtin only when you use
-the bare name.
+This time a real separate program printed the greeting.
 ::
 
 ::tip

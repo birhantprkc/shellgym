@@ -23,6 +23,5 @@ at `/bin/pwd`. Run the twin too, and check that both agree.
 #active
 Waiting for the standalone `/bin/pwd` to report your location...
 #completed
-That place is your *home directory*: your account's own corner of the
-machine, and the spot where every new terminal of yours starts out.
+Both twins agree on where you stand.
 ::

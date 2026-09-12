@@ -15,13 +15,13 @@ If most commands are programs stored on disk, they must live
 a command name as an argument and it prints the location of the program
 file that would run.
 
-Ask it where `date` lives.
+Ask it where `date` lives. The answer is a real file on disk. When you
+type `date`, the shell finds that file and runs it for you, and most
+commands work this way.
 
 ::task
 #active
 Waiting for you to look up the home of `date`...
 #completed
-The answer is `/usr/bin/date`, a real file on disk. When you type
-`date`, the shell finds that file and runs it for you. Most commands
-work this way.
+That is the file on disk that runs when you type `date`.
 ::

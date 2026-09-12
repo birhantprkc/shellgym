@@ -14,12 +14,12 @@ You can open several terminal windows to the same machine at once, and
 each one is a separate conversation. The command `tty` prints the name of
 the terminal *this* conversation is running on.
 
-Run it here.
+Run it here. The output looks like `/dev/pts/0`, and a second terminal
+window would report a different one.
 
 ::task
 #active
 Waiting for you to ask which terminal this is...
 #completed
-The output looks like `/dev/pts/0`, and that is this window's own
-address. A second terminal window would report a different one.
+That is this window's own address.
 ::

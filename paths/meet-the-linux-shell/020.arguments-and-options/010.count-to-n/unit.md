@@ -21,8 +21,7 @@ Make it count to **${LIMIT}**.
 #active
 Waiting for a count from 1 to ${LIMIT}...
 #completed
-The number was an argument: the shell handed it to `seq`, and `seq`
-decided what it meant. That division of labor never changes.
+That is a count from 1 to ${LIMIT}.
 ::
 
 ::tip

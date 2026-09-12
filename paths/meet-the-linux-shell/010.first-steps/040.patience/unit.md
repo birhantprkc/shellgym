@@ -24,12 +24,16 @@ the command name, separated by a space.
 #active
 Waiting for a ${NAP}-second nap...
 #completed
-There was no output at all, just the prompt returning after ${NAP}
-seconds. Silence does not mean failure. Many commands say nothing when
-all went well.
+The prompt is back after ${NAP} seconds of silence.
 ::
 
 ::hint{title="Nothing seems to happen?"}
 That is the point: while `sleep` runs, the prompt is gone and the shell
 is busy. Count to ${NAP} and the prompt will be back.
+::
+
+::tip{title="Silence does not mean failure"}
+Many commands say nothing when all went well. This is the Unix rule
+of silence: a program that has nothing surprising to report prints
+nothing, so that its output stays useful as input to other programs.
 ::

@@ -31,15 +31,17 @@ of whether it *worked*. Ask for the verdict instead of guessing.
 #active
 Waiting for the two-second nap...
 #completed
-The nap is over. Was it a success or a failure? The screen cannot tell
-you, so ask the exit status.
+The nap is over. Now ask for the verdict.
 ::
 
 ::task{name="reported"}
 #active
 Waiting for your report: `whoami` for `0`, `hostname` otherwise...
 #completed
-The status was `0`, which means total success in total silence. **No
-output does not mean failure.** The exit status is the truth, and
-plenty of well-behaved commands say nothing when everything goes fine.
+Correct, the status was `0`, success in total silence.
+::
+
+::tip{title="No output does not mean failure"}
+Plenty of well-behaved commands say nothing when everything goes
+fine. The exit status is the only universal way to tell.
 ::

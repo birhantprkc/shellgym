@@ -11,7 +11,7 @@ tasks:
       date '+%A %d %B'
 ---
 
-`date` accepts a formatting *recipe* as an argument. A recipe starts
+The `date` command accepts a formatting *recipe* as an argument. A recipe starts
 with `+` and mixes placeholders: `%A` is the weekday name, `%d` the day
 of the month, `%B` the month name. This recipe prints something like
 "Monday 28 July":
@@ -33,9 +33,7 @@ sees the argument.
 Waiting for `date` to receive the three-part recipe as a single
 argument...
 #completed
-The quotes never reached `date`. The shell consumed them, and `date`
-received one argument with its spaces preserved. Quoting is how you
-hand over any value that contains spaces.
+The recipe reached `date` as one argument, spaces and all.
 ::
 
 ::hint{title="date says: extra operand"}

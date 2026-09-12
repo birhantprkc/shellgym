@@ -13,17 +13,17 @@ tasks:
       seq $LO $HI
 ---
 
-`seq` also accepts **two** arguments: where to start and where to stop.
+The `seq` command also accepts **two** arguments: where to start and where to stop.
 
 Count from **${LO}** to **${HI}**. Whitespace separates one argument
-from the next. One space is enough, and extra spaces do no harm.
+from the next, and the shell splits the line on it before `seq` ever
+sees the arguments. One space is enough, and extra spaces do no harm.
 
 ::task
 #active
 Waiting for a count from ${LO} to ${HI}...
 #completed
-The shell split the line into two arguments on whitespace before `seq`
-ever saw them. Keep that in mind, because it will matter soon.
+That is a count from ${LO} to ${HI}.
 ::
 
 ::tip

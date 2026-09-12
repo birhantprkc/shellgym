@@ -23,15 +23,15 @@ because whitespace is a separator and *how much* of it never matters,
 and `echo` printed the arguments back with single spaces between.
 
 You already know the fix from the `date` recipe: quotes keep a spaced
-value together as one argument. Now make the standalone `/bin/echo`
-print `mind  the  gap` with the double spaces intact.
+value together as one argument. Whenever an argument must contain
+whitespace, such as a phrase or a file name with a space, quotes are
+the answer. Now make the standalone `/bin/echo` print `mind  the  gap`
+with the double spaces intact.
 
 ::task
 #active
 Waiting for `/bin/echo` to receive the whole gapped phrase as a single
 argument...
 #completed
-It arrived as one argument with the gaps preserved. Whenever an
-argument must contain whitespace, such as a phrase or a file name with
-a space, quotes are the answer.
+The phrase arrived as one argument with the gaps preserved.
 ::

@@ -25,7 +25,5 @@ when it fails, fall back to printing your user name.
 Waiting for the doomed `date --${BOGUS}` with a `whoami` fallback, one
 line...
 #completed
-Plan A complained and plan B answered, so one line handled both
-outcomes. `&&` and `||` are how one-liners make decisions without you
-watching.
+Plan A complained and plan B answered.
 ::

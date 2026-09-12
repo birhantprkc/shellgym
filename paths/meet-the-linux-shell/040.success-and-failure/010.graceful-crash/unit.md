@@ -25,9 +25,6 @@ usually a pointer toward help.
 Waiting for you to feed `date` the nonsense option `--${BOGUS}`...
 #completed
 The command refused, explained itself, and the prompt came right back.
-Nothing broke: an error message is just the command telling you what
-it could not do. (Mistyping a command's *name* is equally harmless, and
-the shell itself answers `command not found`.)
 ::
 
 ::tip

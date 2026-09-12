@@ -16,7 +16,8 @@ tasks:
 
 Now make the exit status work for you. The operator `&&`
 ("and-and") chains two commands with a condition: the second one runs
-**only if the first succeeded** (exit status `0`).
+**only if the first succeeded** (exit status `0`). If the first one
+fails, the shell skips the second entirely.
 
 In one line, pause for **${PAUSE} seconds**, and then, only if the
 pause finished properly, print the machine's name.
@@ -26,7 +27,5 @@ pause finished properly, print the machine's name.
 Waiting for a ${PAUSE}-second pause followed by the machine name, one
 line, chained on success...
 #completed
-The name appeared only after the pause delivered its `0`. Had the
-first command failed, the shell would have skipped the second
-entirely. That is what `&&` means: "and, if that worked, ...".
+The name appeared only after the pause delivered its `0`.
 ::

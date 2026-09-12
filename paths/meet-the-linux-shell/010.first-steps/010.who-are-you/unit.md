@@ -20,8 +20,7 @@ Type it after the prompt, all in one word, and press **Enter**.
 #active
 Waiting for you to ask the machine who you are...
 #completed
-That name is your user account. Notice the order of events: prompt,
-your command, the answer, and a fresh prompt ready for the next one.
+That name is your user account.
 ::
 
 ::tip

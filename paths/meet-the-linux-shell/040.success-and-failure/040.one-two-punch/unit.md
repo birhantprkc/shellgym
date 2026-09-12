@@ -26,7 +26,5 @@ name) in **one line**.
 Waiting for the one-line roll call: who you are, what machine you are on, on
 which terminal...
 #completed
-One Enter press produced three answers. The `;` is the "and then" of
-the shell: it sequences commands blindly and asks no questions. The
-next units introduce chaining that *does* ask questions.
+One Enter press produced three answers.
 ::

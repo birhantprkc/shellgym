@@ -10,7 +10,7 @@ tasks:
       date -uR
 ---
 
-`date` knows another short option: `-R` prints the time in the classic
+The `date` command knows another short option: `-R` prints the time in the classic
 e-mail header style (`Mon, 28 Jul 2025 ...`).
 
 There is a convenience worth knowing: **compatible short options can
@@ -23,6 +23,5 @@ Print the e-mail-style time in UTC, using one dash for both options.
 #active
 Waiting for `-u` and `-R` combined into a single dash group...
 #completed
-One compact argument switched on two behaviors. Long options never
-combine like this, and each `--` option stays a separate word.
+One compact argument switched on two behaviors.
 ::

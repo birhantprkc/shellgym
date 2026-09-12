@@ -19,9 +19,7 @@ Ask this machine for its name.
 #active
 Waiting for you to ask the machine for its name...
 #completed
-Each machine has exactly one name. Many prompts show the user and the
-machine together as `user@machine`, and now you know where each half
-comes from.
+That is the machine's name.
 ::
 
 ::tip

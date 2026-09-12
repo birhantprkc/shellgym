@@ -21,7 +21,13 @@ Print the odd numbers from **1** to **${ODD}**.
 #active
 Waiting for 1, 3, 5, ... up to ${ODD}...
 #completed
-It was the same command, but the meaning of each argument depended on
-how many you gave. Each command defines its own arguments, and its
-manual is where you look them up.
+Those are the odd numbers up to ${ODD}.
+::
+
+::tip{title="Every command has its own rules"}
+The shell only splits the line into words and hands them over. What
+the words mean is up to the command. With `seq`, the same position
+means a different thing depending on how many arguments you give.
+Other commands have their own rules, and the manual of each command
+is where you look them up.
 ::

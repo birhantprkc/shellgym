@@ -24,7 +24,7 @@ tasks:
 ---
 
 Besides its output, every command leaves behind a hidden verdict: a
-number called the **exit status**. `0` means "all went well". Anything
+number called the **exit status**. The value `0` means "all went well". Anything
 else signals a problem. The shell stores the latest verdict in `$?`,
 and `echo` can reveal it:
 
@@ -54,7 +54,5 @@ It failed, as ordered. Now check the verdict it left behind.
 Waiting for your report: `whoami` if the status was `0`, `hostname`
 otherwise...
 #completed
-It was `1`, a failure verdict, so `hostname` was the right report.
-You will almost never *print* `$?` in daily work, but everything in the
-rest of this module quietly runs on it.
+Correct, the status was `1`, a failure verdict.
 ::

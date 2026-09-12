@@ -20,7 +20,11 @@ Print the UTC time again, this time using the long spelling.
 #active
 Waiting for the UTC time via the long option...
 #completed
-The output is identical. Short options are quicker to type. Long
-options are easier to read later, which is why seasoned users prefer
-the long form in saved scripts.
+The output is identical to the short spelling.
+::
+
+::tip{title="Which spelling to use?"}
+Short options are quicker to type. Long options are easier to read
+later, which is why seasoned users prefer the long form in saved
+scripts.
 ::

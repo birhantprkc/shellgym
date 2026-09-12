@@ -1,8 +1,8 @@
 # Two Kinds of Commands
 
 Where do commands actually come from? Most are small **programs**
-stored on disk. `whoami`, `date`, and `seq` are all files that the
-shell finds and runs for you. A handful of commands are **built into
+stored on disk. The commands `whoami`, `date`, and `seq` are all files
+that the shell finds and runs for you. A handful of commands are **built into
 the shell itself**. No file is involved, and the shell does the work
 on the spot. Those are called **builtins**.
 
